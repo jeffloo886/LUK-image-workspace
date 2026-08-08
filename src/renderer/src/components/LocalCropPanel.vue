@@ -187,7 +187,7 @@ let nativeVoiceOff: (() => void) | null = null
 const productSlots = computed(() => [0, 1, 2].map((index) => cropProducts.value[index] || null))
 const activeProvider = computed(() => props.providers.find((item) => item.id === providerId.value) || props.providers[0])
 const canSubmit = computed(() => Boolean(cropScene.value) && !props.submitting && !baking.value)
-const selectedProviderLabel = computed(() => activeProvider.value?.label || '线路')
+const selectedProviderLabel = computed(() => activeProvider.value?.label || 'Provider')
 const selectedSizeLabel = computed(() => activeProvider.value?.sizeOptions.find((item) => item.value === size.value)?.label || size.value)
 const selectedQualityLabel = computed(() => activeProvider.value?.qualityOptions.find((item) => item.value === quality.value)?.label || quality.value)
 const currentResolutionOptions = computed(() => activeProvider.value?.resolutionOptions || [])
@@ -396,7 +396,7 @@ async function rebuildScenePreview(): Promise<void> {
       const image = await new Promise<HTMLImageElement>((resolve, reject) => {
         const el = new Image()
         el.onload = () => resolve(el)
-        el.onerror = () => reject(new Error('场景预览加载失败'))
+        el.onerror = () => reject(new Error('Failed to load the scene preview'))
         el.src = sceneSrc
       })
       const maxEdge = 1600
@@ -467,21 +467,21 @@ function applyProductImage(slot: number, image: DesktopSelectedImage): void {
 
 async function importFromClipboard(): Promise<DesktopSelectedImage> {
   if (!window.desktop?.readClipboardImage || !window.desktop?.importPsdImage) {
-    throw new Error('当前环境不支持从剪切板粘贴图片')
+    throw new Error('Pasting images from the clipboard is not supported here')
   }
   const clip = await window.desktop.readClipboardImage()
-  if (!clip) throw new Error('剪切板里没有图片，请先复制一张图')
+  if (!clip) throw new Error('No image is in the clipboard. Copy an image first.')
   return window.desktop.importPsdImage(clip)
 }
 
 async function chooseScene(): Promise<void> {
   pickerError.value = ''
   try {
-    const selected = await window.desktop?.selectWorkflowImages({ limit: 1, title: '选择场景图' }) || []
+    const selected = await window.desktop?.selectWorkflowImages({ limit: 1, title: 'Choose scene image' }) || []
     if (!selected[0]) return
     applySceneImage(selected[0])
   } catch (error) {
-    pickerError.value = error instanceof Error ? error.message : '选择场景图失败'
+    pickerError.value = error instanceof Error ? error.message : 'Failed to choose the scene image'
   }
 }
 
@@ -490,18 +490,18 @@ async function pasteScene(): Promise<void> {
   try {
     applySceneImage(await importFromClipboard())
   } catch (error) {
-    pickerError.value = error instanceof Error ? error.message : '粘贴场景图失败'
+    pickerError.value = error instanceof Error ? error.message : 'Failed to paste the scene image'
   }
 }
 
 async function chooseProductAt(slot: number): Promise<void> {
   pickerError.value = ''
   try {
-    const selected = await window.desktop?.selectWorkflowImages({ limit: 1, title: '选择产品图' }) || []
+    const selected = await window.desktop?.selectWorkflowImages({ limit: 1, title: 'Choose product image' }) || []
     if (!selected[0]) return
     applyProductImage(slot, selected[0])
   } catch (error) {
-    pickerError.value = error instanceof Error ? error.message : '选择产品图失败'
+    pickerError.value = error instanceof Error ? error.message : 'Failed to choose the product image'
   }
 }
 
@@ -510,7 +510,7 @@ async function pasteProductAt(slot: number): Promise<void> {
   try {
     applyProductImage(slot, await importFromClipboard())
   } catch (error) {
-    pickerError.value = error instanceof Error ? error.message : '粘贴产品图失败'
+    pickerError.value = error instanceof Error ? error.message : 'Failed to paste the product image'
   }
 }
 
@@ -554,12 +554,12 @@ function handleNativeVoiceEvent(value: { type: string; text?: string; message?: 
   if (value.type === 'ready') {
     isVoiceRecognizing.value = false
     isVoiceListening.value = true
-    voiceStatus.value = '正在听，你可以开始说话…'
+  voiceStatus.value = 'Listening. You can start speaking…'
     return
   }
   if (value.type === 'partial') {
     voiceInterimText = String(value.text || '')
-    voiceStatus.value = voiceInterimText.trim() ? `识别中：${voiceInterimText.trim()}` : '正在识别…'
+  voiceStatus.value = voiceInterimText.trim() ? `Recognizing: ${voiceInterimText.trim()}` : 'Recognizing…'
     return
   }
   if (value.type === 'final') {
@@ -568,7 +568,7 @@ function handleNativeVoiceEvent(value: { type: string; text?: string; message?: 
   }
   if (value.type === 'error') {
     voiceFailed = true
-    const message = String(value.message || '语音识别失败，请再试一次')
+  const message = String(value.message || 'Voice recognition failed. Please try again.')
     voiceStatus.value = message
     clearVoiceStatusLater(message, 5200)
     return
@@ -581,11 +581,11 @@ function handleNativeVoiceEvent(value: { type: string; text?: string; message?: 
     const recognized = (voiceFinalText || voiceInterimText).trim()
     if (recognized) {
       appendRecognizedText(recognized)
-      voiceStatus.value = '已加入提示词'
-      clearVoiceStatusLater('已加入提示词')
+      voiceStatus.value = 'Added to prompt'
+      clearVoiceStatusLater('Added to prompt')
     } else {
-      voiceStatus.value = '没有识别到内容，请再试一次'
-      clearVoiceStatusLater('没有识别到内容，请再试一次', 5200)
+      voiceStatus.value = 'No speech was recognized. Please try again.'
+      clearVoiceStatusLater('No speech was recognized. Please try again.', 5200)
     }
   }
 }
@@ -594,31 +594,31 @@ async function toggleVoiceInput(): Promise<void> {
   if (isVoiceListening.value || isVoiceRecognizing.value) {
     isVoiceListening.value = false
     isVoiceRecognizing.value = true
-    voiceStatus.value = '正在完成识别…'
+    voiceStatus.value = 'Finishing recognition…'
     if (nativeVoiceActive) void window.desktop?.voiceStop()
     return
   }
   if (!window.desktop?.voiceStart) {
-    voiceStatus.value = '当前环境暂不支持语音输入'
+  voiceStatus.value = 'Voice input is not supported in this environment'
     clearVoiceStatusLater(voiceStatus.value, 4200)
     return
   }
   isVoiceRecognizing.value = true
-  voiceStatus.value = '正在请求麦克风权限…'
+  voiceStatus.value = 'Requesting microphone permission…'
   try {
     const granted = await window.desktop.requestMicrophoneAccess()
-    if (!granted) throw new Error('麦克风未授权')
+    if (!granted) throw new Error('Microphone access was not granted')
     voiceFinalText = ''
     voiceInterimText = ''
     voiceFailed = false
     nativeVoiceActive = true
-    voiceStatus.value = '正在启动语音识别…'
+    voiceStatus.value = 'Starting voice recognition…'
     await window.desktop.voiceStart()
   } catch (error) {
     nativeVoiceActive = false
     isVoiceListening.value = false
     isVoiceRecognizing.value = false
-    voiceStatus.value = error instanceof Error ? error.message : '无法启动语音输入'
+    voiceStatus.value = error instanceof Error ? error.message : 'Unable to start voice input'
     clearVoiceStatusLater(voiceStatus.value, 5200)
   }
 }
@@ -630,7 +630,7 @@ async function onGenerateClick(): Promise<void> {
     return
   }
   if (!cropBox.value) {
-    pickerError.value = '请先在编辑器中设置重绘框'
+    pickerError.value = 'Set a crop box in the editor first'
     openEditor()
     return
   }
@@ -640,7 +640,7 @@ async function onGenerateClick(): Promise<void> {
 async function submit(): Promise<void> {
   pickerError.value = ''
   if (!cropScene.value || !cropBox.value) return
-  if (!window.desktop?.importPsdImage) return void (pickerError.value = '桌面导入能力不可用')
+  if (!window.desktop?.importPsdImage) return void (pickerError.value = 'Desktop import is unavailable')
   const guardedPrompt = withLocalCropGuard(cropPrompt.value)
   emit('begin', { prompt: guardedPrompt })
   baking.value = true
@@ -684,7 +684,7 @@ async function submit(): Promise<void> {
       }
     })
   } catch (error) {
-    const message = error instanceof Error ? error.message : '裁切图准备失败'
+    const message = error instanceof Error ? error.message : 'Failed to prepare the crop'
     pickerError.value = message
     emit('begin-failed', message)
   } finally {
@@ -727,25 +727,25 @@ onBeforeUnmount(() => {
         </div>
         <div class="scene-empty-copy">
           <UploadCloud :size="22" />
-          <strong>上传场景图</strong>
-          <span>PNG、JPG 或 WebP</span>
+          <strong>Upload scene image</strong>
+          <span>PNG, JPG, or WebP</span>
           <button class="paste-action" type="button" @click.stop="pasteScene">
             <ClipboardPaste :size="13" />
-            粘贴
+            Paste
           </button>
         </div>
       </div>
       <div v-else class="scene-hero filled primary-visual-frame">
-        <img :src="scenePreview || cropScene.previewDataUrl" alt="场景图" />
+        <img :src="scenePreview || cropScene.previewDataUrl" alt="Scene image" />
         <div class="scene-overlay">
           <button type="button" class="edit-chip" @click.stop="openEditor">
             <Pencil :size="13" />
-            {{ cropBox ? '编辑重绘框' : '设置重绘框' }}
+            {{ cropBox ? 'Edit crop box' : 'Set crop box' }}
           </button>
-          <button type="button" class="ghost-chip" @click.stop="chooseScene">更换</button>
+          <button type="button" class="ghost-chip" @click.stop="chooseScene">Replace</button>
           <button type="button" class="ghost-chip" @click.stop="pasteScene">
             <ClipboardPaste :size="13" />
-            粘贴
+            Paste
           </button>
         </div>
       </div>
@@ -766,15 +766,15 @@ onBeforeUnmount(() => {
             <span class="remove" @click.stop="removeProductAt(slot)"><X :size="11" /></span>
             <button class="paste-action on-image" type="button" @click.stop="pasteProductAt(slot)">
               <ClipboardPaste :size="11" />
-              粘贴
+              Paste
             </button>
           </template>
           <template v-else>
             <Plus :size="16" />
-            <span>产品参考</span>
+            <span>Product reference</span>
             <button class="paste-action compact" type="button" @click.stop="pasteProductAt(slot)">
               <ClipboardPaste :size="11" />
-              粘贴
+              Paste
             </button>
           </template>
         </div>
@@ -790,7 +790,7 @@ onBeforeUnmount(() => {
             v-model="cropPrompt"
             rows="2"
             maxlength="2000"
-            placeholder="描述替换要求：产品如何融入场景、光线材质、保留框外内容…"
+            placeholder="Describe the replacement: how the product fits the scene, lighting, material, and what stays outside the box…"
             @input="onPromptInput"
             @keydown.meta.enter="onGenerateClick"
             @keydown.ctrl.enter="onGenerateClick"
@@ -799,23 +799,23 @@ onBeforeUnmount(() => {
 
         <div :class="['composer-bottom', { 'has-send': canSubmit || submitting || baking }]">
           <div class="crop-composer-actions">
-            <button class="icon-round mode-add-control" type="button" :title="cropScene ? '更换场景图' : '添加场景图'" @click="chooseScene">
+            <button class="icon-round mode-add-control" type="button" :title="cropScene ? 'Replace scene image' : 'Add scene image'" @click="chooseScene">
               <Plus :size="16" />
             </button>
-            <button class="icon-round mode-pencil-control" type="button" title="画笔重绘区域" :disabled="!cropScene" @click="openEditor">
+            <button class="icon-round mode-pencil-control" type="button" title="Paint the replacement area" :disabled="!cropScene" @click="openEditor">
               <Pencil :size="16" />
             </button>
           </div>
 
           <div class="composer-params">
             <div class="pop-wrap mode-provider-control">
-              <button :class="['param-btn', { open: openPopover === 'provider' }]" type="button" aria-label="生成线路" @click="togglePopover('provider')">
+              <button :class="['param-btn', { open: openPopover === 'provider' }]" type="button" aria-label="Provider" @click="togglePopover('provider')">
                 {{ selectedProviderLabel }}
                 <ChevronDown :size="12" />
               </button>
               <Transition name="pop">
                 <div v-if="openPopover === 'provider'" class="menu-pop param-menu scrollable" role="menu">
-                  <span class="menu-title">线路</span>
+                  <span class="menu-title">Provider</span>
                   <button
                     v-for="provider in providers"
                     :key="provider.id"
@@ -837,23 +837,23 @@ onBeforeUnmount(() => {
               <button
                 class="param-btn"
                 type="button"
-                aria-label="画面比例"
-                title="局部重绘固定 1:1，与重绘框一致"
+                aria-label="Aspect ratio"
+                title="Local crop is fixed at 1:1 to match the crop box"
                 disabled
               >
                 {{ selectedSizeLabel || '1:1' }}
-                <span class="size-lock-hint">固定</span>
+                <span class="size-lock-hint">Locked</span>
               </button>
             </div>
 
             <div v-if="currentQualityOptions.length > 1" class="pop-wrap mode-quality-control">
-              <button :class="['param-btn', { open: openPopover === 'quality' }]" type="button" aria-label="质量" @click="togglePopover('quality')">
+              <button :class="['param-btn', { open: openPopover === 'quality' }]" type="button" aria-label="Quality" @click="togglePopover('quality')">
                 {{ selectedQualityLabel }}
                 <ChevronDown :size="12" />
               </button>
               <Transition name="pop">
                 <div v-if="openPopover === 'quality'" class="menu-pop param-menu" role="menu">
-                  <span class="menu-title">质量</span>
+                  <span class="menu-title">Quality</span>
                   <button
                     v-for="item in currentQualityOptions"
                     :key="item.value"
@@ -874,7 +874,7 @@ onBeforeUnmount(() => {
               <button
                 :class="['param-btn', { open: openPopover === 'resolution', ultra: isMaxResolution }]"
                 type="button"
-                aria-label="分辨率"
+                aria-label="Resolution"
                 @click="togglePopover('resolution')"
               >
                 {{ resolutionLabel }}
@@ -883,18 +883,18 @@ onBeforeUnmount(() => {
               <Transition name="pop">
                 <div v-if="openPopover === 'resolution'" class="menu-pop slider-pop">
                   <div class="resolution-heading">
-                    <span>分辨率</span>
+                    <span>Resolution</span>
                     <strong :class="{ ultra: isMaxResolution }">{{ resolutionLabel }}</strong>
                     <button
                       class="resolution-help"
                       type="button"
-                      title="更高分辨率会生成更清晰的细节，同时需要更长处理时间"
-                      aria-label="分辨率说明"
+                    title="Higher resolution creates more detail but takes longer"
+                    aria-label="Resolution help"
                     >
                       <HelpCircle :size="14" />
                     </button>
                   </div>
-                  <div class="slider-labels"><span>更快</span><span>更清晰</span></div>
+                  <div class="slider-labels"><span>Faster</span><span>Sharper</span></div>
                   <div :class="['resolution-track', { ultra: isMaxResolution }]" :style="resolutionTrackStyle">
                     <ResolutionEnergyCanvas :progress="resolutionProgress" :ultra="isMaxResolution" />
                     <input
@@ -905,7 +905,7 @@ onBeforeUnmount(() => {
                       step="0.01"
                       :value="resolutionSlide"
                       :aria-valuetext="resolutionLabel"
-                      aria-label="分辨率档位"
+                      aria-label="Resolution level"
                       @input="onResolutionSlideInput"
                       @change="onResolutionSlideCommit"
                       @pointerup="onResolutionSlideCommit"
@@ -923,8 +923,8 @@ onBeforeUnmount(() => {
               :class="['voice-btn', { listening: isVoiceListening, recognizing: isVoiceRecognizing }]"
               type="button"
               :disabled="submitting || baking"
-              :aria-label="isVoiceListening ? '停止语音输入' : '语音输入'"
-              :title="isVoiceListening ? '停止并识别' : '语音输入提示词'"
+              :aria-label="isVoiceListening ? 'Stop voice input' : 'Voice input'"
+              :title="isVoiceListening ? 'Stop and recognize' : 'Dictate a prompt'"
               @click="toggleVoiceInput"
             >
               <LoaderCircle v-if="isVoiceRecognizing" :size="15" class="spin" />
@@ -940,7 +940,7 @@ onBeforeUnmount(() => {
                 tabindex="-1"
                 :disabled="!canSubmit"
                 :aria-hidden="!(canSubmit || submitting || baking)"
-                :aria-label="cropBox ? '开始生成' : '设置重绘框并生成'"
+                :aria-label="cropBox ? 'Generate' : 'Set crop box and generate'"
                 @click="onGenerateClick"
               >
                 <LoaderCircle v-if="submitting || baking" :size="16" class="spin" />
@@ -957,7 +957,7 @@ onBeforeUnmount(() => {
           <span v-else-if="voiceStatus" class="voice-status" role="status" aria-live="polite">{{ voiceStatus }}</span>
           <span v-else>1 local edit request · provider billed separately</span>
         </div>
-        <span>⌘ ↵ 生成</span>
+        <span>⌘ ↵ Generate</span>
       </div>
     </section>
 

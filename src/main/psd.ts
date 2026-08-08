@@ -54,11 +54,11 @@ export type PsdProcessResult = {
 }
 
 function safeName(value: string): string {
-  return value.replace(/[^\p{L}\p{N}_-]+/gu, '-').replace(/^-+|-+$/g, '').slice(0, 80) || '商品图'
+  return value.replace(/[^\p{L}\p{N}_-]+/gu, '-').replace(/^-+|-+$/g, '').slice(0, 80) || 'product-image'
 }
 
 export async function uniquePsdPath(directory: string, sourceName: string): Promise<string> {
-  const base = `${safeName(path.basename(sourceName, path.extname(sourceName)))}-分层`
+  const base = `${safeName(path.basename(sourceName, path.extname(sourceName)))}-layered`
   for (let index = 0; index < 1000; index += 1) {
     const suffix = index ? `-${index + 1}` : ''
     const candidate = path.join(directory, `${base}${suffix}.psd`)
@@ -684,14 +684,14 @@ async function buildTextBlockGroup(
     await applyGlyphMatte(pixels, boxWidth, boxHeight)
   }
   const textHeight = region.height * height
-  const trimmedText = region.text.trim() || '文字'
+  const trimmedText = region.text.trim() || 'Text'
   const label = trimmedText.length > 12 ? `${trimmedText.slice(0, 12)}…` : trimmedText
-  const modeTag = mode === 'preserve' ? '整框' : '精抠'
+  const modeTag = mode === 'preserve' ? 'Preserve frame' : 'Glyph cutout'
   const editableLayer: Layer = {
-    name: '编辑文字',
+    name: 'Editable text',
     hidden: true,
     text: {
-      text: trimmedText === '文字' ? '' : trimmedText,
+      text: trimmedText === 'Text' ? '' : trimmedText,
       transform: [1, 0, 0, 1, region.x * width, region.y * height + textHeight * 0.85],
       style: {
         font: { name: 'PingFangSC-Regular' },
@@ -701,7 +701,7 @@ async function buildTextBlockGroup(
     }
   }
   const pixelLayer: Layer = {
-    name: '原样式',
+    name: 'Original style',
     top: box.top,
     left: box.left,
     right: box.right,
@@ -709,7 +709,7 @@ async function buildTextBlockGroup(
     imageData: { data: pixels, width: boxWidth, height: boxHeight },
     transparencyProtected: true
   }
-  return { name: `文字 · ${modeTag} · ${label}`, opened: false, children: [editableLayer, pixelLayer] }
+  return { name: `Text · ${modeTag} · ${label}`, opened: false, children: [editableLayer, pixelLayer] }
 }
 
 function createDecorationMask(source: Uint8Array, textMask: Uint8Array): Uint8Array {
@@ -767,7 +767,7 @@ async function expandBrightMask(mask: Uint8Array, width: number, height: number,
     .toColourspace('b-w')
     .raw()
     .toBuffer({ resolveWithObject: true })
-  if (info.channels !== 1 || data.length !== width * height) throw new Error('挖洞蒙版扩张失败')
+  if (info.channels !== 1 || data.length !== width * height) throw new Error('Mask expansion failed')
   return new Uint8Array(data)
 }
 
@@ -1238,7 +1238,7 @@ async function runVision(helperPath: string, normalizedPath: string, maskPath: s
     await execFileAsync(helperPath, [normalizedPath, maskPath, jsonPath], { timeout: 120_000, maxBuffer: 1024 * 1024 })
   } catch (error) {
     const message = error && typeof error === 'object' && 'stderr' in error ? String(error.stderr || '') : ''
-    throw new Error(message.trim() || 'Mac Vision 主体识别失败')
+    throw new Error(message.trim() || 'Mac Vision subject detection failed')
   }
   const parsed = JSON.parse(await readFile(jsonPath, 'utf8')) as Partial<VisionAnalysis>
   return {
@@ -1290,16 +1290,16 @@ export async function preparePsdDraft(input: {
   const visionMaskPath = path.join(draftDir, 'vision-mask.png')
   const jsonPath = path.join(draftDir, 'analysis.json')
 
-  input.onProgress(8, '正在读取图片')
+  input.onProgress(8, 'Reading image')
   const normalized = sharp(input.inputPath, { limitInputPixels: 80_000_000 }).rotate().ensureAlpha()
   const metadata = await normalized.metadata()
   const width = Number(metadata.width || 0)
   const height = Number(metadata.height || 0)
-  if (!width || !height) throw new Error('无法读取图片尺寸')
-  if (width > 8000 || height > 8000) throw new Error('首版暂不支持超过 8000 像素的图片')
+  if (!width || !height) throw new Error('Unable to read image dimensions')
+  if (width > 8000 || height > 8000) throw new Error('Images over 8000 pixels are not supported')
   await normalized.png().toFile(normalizedPath)
 
-  input.onProgress(18, 'Mac Vision 正在识别主体（补漏）')
+  input.onProgress(18, 'Mac Vision is detecting the subject (fallback pass)')
   const analysis = await runVision(input.helperPath, normalizedPath, visionMaskPath, jsonPath)
   const sourceResult = await sharp(normalizedPath).ensureAlpha().raw().toBuffer({ resolveWithObject: true })
   const source = new Uint8Array(sourceResult.data)
@@ -1307,7 +1307,7 @@ export async function preparePsdDraft(input: {
   let subjectMask: Uint8Array
   let hasSubject: boolean
   try {
-    input.onProgress(35, 'AI 正在识别主体（BiRefNet）')
+    input.onProgress(35, 'AI is detecting the subject (BiRefNet)')
     const alpha = await segmentSubject({
       imagePath: normalizedPath,
       width,
@@ -1320,7 +1320,7 @@ export async function preparePsdDraft(input: {
     hasSubject = coverage >= 0.002 && coverage <= 0.985
     subjectMask = hasSubject ? await refineSubjectAlpha(source, alpha, width, height) : alpha
   } catch (error) {
-    console.warn('草稿主体分割失败，回退 Vision：', error)
+    console.warn('Draft subject segmentation failed; falling back to Vision:', error)
     const threshold = input.options.subjectProtection ? 36 : 72
     const subjectBuffer = await sharp(visionMaskPath)
       .resize(width, height, { fit: 'fill' })
@@ -1338,7 +1338,7 @@ export async function preparePsdDraft(input: {
   // 草稿阶段文字 mask 仅用于道具排除（完整文字仍在导出时重检）
   let textMask = new Uint8Array(width * height)
   try {
-    input.onProgress(50, 'AI 正在检测文字（排除进道具）')
+    input.onProgress(50, 'AI is detecting text (excluded from prop layer)')
     const det = await detectTextBoxes({
       imagePath: normalizedPath,
       width,
@@ -1359,7 +1359,7 @@ export async function preparePsdDraft(input: {
     textMask = new Uint8Array(createTextMask([], width, height))
   }
 
-  input.onProgress(70, '正在识别奖杯等道具')
+  input.onProgress(70, 'Detecting props such as trophies')
   let propMask: Uint8Array | null = null
   try {
     propMask = await extractSecondaryPropMask(source, subjectMask, textMask, width, height)
@@ -1391,7 +1391,7 @@ export async function preparePsdDraft(input: {
     })
   )
 
-  input.onProgress(100, '草稿已就绪，请修蒙版')
+  input.onProgress(100, 'Draft ready; refine the masks')
   let hasProp = false
   for (const v of propMask) {
     if (v >= 64) {
@@ -1428,16 +1428,16 @@ export async function processImageToPsd(input: {
   const jsonPath = path.join(temporaryDirectory, 'analysis.json')
 
   try {
-    input.onProgress(8, '正在读取并校正图片')
+    input.onProgress(8, 'Reading and correcting image')
     const normalized = sharp(input.inputPath, { limitInputPixels: 80_000_000 }).rotate().ensureAlpha()
     const metadata = await normalized.metadata()
     const width = Number(metadata.width || 0)
     const height = Number(metadata.height || 0)
-    if (!width || !height) throw new Error('无法读取图片尺寸')
-    if (width > 8000 || height > 8000) throw new Error('首版暂不支持超过 8000 像素的图片')
+    if (!width || !height) throw new Error('Unable to read image dimensions')
+    if (width > 8000 || height > 8000) throw new Error('Images over 8000 pixels are not supported')
     await normalized.png().toFile(normalizedPath)
 
-    input.onProgress(18, 'Mac Vision 正在识别主体与文字（补漏）')
+    input.onProgress(18, 'Mac Vision is detecting subject and text (fallback pass)')
     const analysis = await runVision(input.helperPath, normalizedPath, maskPath, jsonPath)
 
     const sourceResult = await sharp(normalizedPath).ensureAlpha().raw().toBuffer({ resolveWithObject: true })
@@ -1448,7 +1448,7 @@ export async function processImageToPsd(input: {
     let hasSubject: boolean
     let aiSegmented = false
     if (input.maskOverrides?.subjectMask && input.maskOverrides.subjectMask.length === width * height) {
-      input.onProgress(30, '使用已修主体蒙版')
+      input.onProgress(30, 'Using refined subject mask')
       subjectMask = new Uint8Array(input.maskOverrides.subjectMask)
       let covered = 0
       for (const value of subjectMask) if (value >= 128) covered += 1
@@ -1457,7 +1457,7 @@ export async function processImageToPsd(input: {
       aiSegmented = true
     } else {
       try {
-        input.onProgress(30, 'AI 正在精细识别主体（BiRefNet）')
+        input.onProgress(30, 'AI is refining subject detection (BiRefNet)')
         const alpha = await segmentSubject({
           imagePath: normalizedPath,
           width,
@@ -1470,13 +1470,13 @@ export async function processImageToPsd(input: {
         hasSubject = coverage >= 0.002 && coverage <= 0.985
         aiSegmented = true
         if (hasSubject) {
-          input.onProgress(34, '正在轻量精修主体边缘')
+          input.onProgress(34, 'Refining subject edges')
           subjectMask = await refineSubjectAlpha(source, alpha, width, height)
         } else {
           subjectMask = alpha
         }
       } catch (error) {
-        console.warn('AI 主体分割失败，回退 Vision 蒙版：', error)
+        console.warn('AI subject segmentation failed; falling back to the Vision mask:', error)
         const threshold = input.options.subjectProtection ? 36 : 72
         const subjectBuffer = await sharp(maskPath)
           .resize(width, height, { fit: 'fill' })
@@ -1495,7 +1495,7 @@ export async function processImageToPsd(input: {
     // PP-OCR det 主检文字 + Vision 补漏/贴 OCR 文案
     let detRegions: DetectedTextRegion[] = []
     try {
-      input.onProgress(40, 'AI 正在检测文字区域（PP-OCR）')
+      input.onProgress(40, 'AI is detecting text regions (PP-OCR)')
       detRegions = await detectTextBoxes({
         imagePath: normalizedPath,
         width,
@@ -1503,7 +1503,7 @@ export async function processImageToPsd(input: {
         modelsDirectory: input.aiModelsDirectory
       })
     } catch (error) {
-      console.warn('PP-OCR 文字检测失败，仅用 Vision：', error)
+      console.warn('PP-OCR text detection failed; using Vision only:', error)
     }
     const visionRegions: DetectedTextRegion[] = analysis.textRegions.map((item) => ({
       x: item.x,
@@ -1524,7 +1524,7 @@ export async function processImageToPsd(input: {
     }))
 
     // 方案 C：大标题 → 金字去底优先，失败整框；框不可过大；文字层强制扣人体
-    input.onProgress(48, '正在分类文字（金字去底 / 整框 / 精抠）')
+    input.onProgress(48, 'Classifying text (gold matte / frame preserve / glyph cutout)')
     type PreparedText = {
       region: TextRegion
       box: PixelBox
@@ -1591,7 +1591,7 @@ export async function processImageToPsd(input: {
     // 兼容旧变量名：装饰/回退路径仍需要一张「文字占用」图
     const textMask = holeTextMask
 
-    input.onProgress(54, '正在拆分主体、文字和光影')
+    input.onProgress(54, 'Separating subject, text, and lighting')
     const mainMask = new Uint8Array(subjectMask.length)
     const repairBaseMask = new Uint8Array(subjectMask.length)
     for (let index = 0; index < subjectMask.length; index += 1) {
@@ -1601,7 +1601,7 @@ export async function processImageToPsd(input: {
       repairBaseMask[index] = Math.max(subjectMask[index], holeTextMask[index])
     }
     // 次要物体（奖杯等）；半自动时用用户修过的道具 mask
-    input.onProgress(56, '正在识别并分离奖杯等道具')
+    input.onProgress(56, 'Detecting and separating props such as trophies')
     let propMask: Uint8Array | null = null
     if (input.maskOverrides && 'propMask' in input.maskOverrides) {
       const override = input.maskOverrides.propMask
@@ -1613,12 +1613,12 @@ export async function processImageToPsd(input: {
       } else {
         propMask = null
       }
-      input.onProgress(56, propMask ? '使用已修道具蒙版' : '无道具蒙版')
+      input.onProgress(56, propMask ? 'Using refined prop mask' : 'No prop mask')
     } else {
       try {
         propMask = await extractSecondaryPropMask(source, mainMask, textMask, width, height)
       } catch (error) {
-        console.warn('次要物体提取失败：', error)
+        console.warn('Secondary prop extraction failed:', error)
         propMask = null
       }
     }
@@ -1688,20 +1688,20 @@ export async function processImageToPsd(input: {
 
     if (aiSegmented) {
       try {
-        cleanBackground = await runInpaintWithExpand(baseExpand, 'AI 正在修复背景（第 1 遍）', 28)
+        cleanBackground = await runInpaintWithExpand(baseExpand, 'AI is repairing the background (pass 1)', 28)
         aiInpainted = true
         const pass2Expand = Math.min(56, Math.round(baseExpand * 1.45 + 6))
-        input.onProgress(68, 'AI 正在二次清除残影（第 2 遍）')
-        cleanBackground = await runInpaintWithExpand(pass2Expand, 'AI 正在二次清除残影（第 2 遍）', 24, cleanBackground)
+        input.onProgress(68, 'AI is removing residual artifacts (pass 2)')
+        cleanBackground = await runInpaintWithExpand(pass2Expand, 'AI is removing residual artifacts (pass 2)', 24, cleanBackground)
 
         if (hasSubject) {
           // 默认第三遍：干净背景人影是当前最大槽点
-          input.onProgress(72, 'AI 正在强力清除人物残影（第 3 遍）')
+          input.onProgress(72, 'AI is removing strong subject ghosts (pass 3)')
           const pass3 = Math.min(64, Math.round(baseExpand * 1.9 + 10))
-          cleanBackground = await runInpaintWithExpand(pass3, 'AI 正在强力清除人物残影（第 3 遍）', 20, cleanBackground)
+          cleanBackground = await runInpaintWithExpand(pass3, 'AI is removing strong subject ghosts (pass 3)', 20, cleanBackground)
           const ghost2 = measureSubjectGhost(cleanBackground, source, subjectMask, width, height)
           // 始终做一轮主体核插值压影（ghost 低也轻压，去轮廓）
-          input.onProgress(76, ghost2 > 0.14 ? '残影仍高，插值压影收尾' : '插值平滑主体轮廓')
+          input.onProgress(76, ghost2 > 0.14 ? 'Ghosting remains; finishing with directional fill' : 'Smoothing subject edges with directional fill')
           const core = await expandBrightMask(
             (() => {
               const m = new Uint8Array(subjectMask.length)
@@ -1732,13 +1732,13 @@ export async function processImageToPsd(input: {
         // 文字挖洞偶发死黑：用周围色补
         patchNearBlackHoles(cleanBackground, holeTextMask, width, height)
       } catch (error) {
-        console.warn('AI 背景修复失败，回退方向插值管线：', error)
+        console.warn('AI background repair failed; falling back to directional fill:', error)
         cleanBackground = null
         aiInpainted = false
       }
     }
     if (!cleanBackground) {
-      input.onProgress(66, '正在修复主体后的背景')
+      input.onProgress(66, 'Repairing the background around the subject')
       let expandedMask: Uint8Array
       if (hasSubject) {
         expandedMask = createRepairArea(repairBaseMask, width, height)
@@ -1780,40 +1780,40 @@ export async function processImageToPsd(input: {
     const panelTopToBottom: Layer[] = []
     if (mainCropped) {
       panelTopToBottom.push(
-        layerCropped(numbered('主体'), mainCropped, { transparencyProtected: true })
+        layerCropped(numbered('Subject'), mainCropped, { transparencyProtected: true })
       )
     } else if (hasSubject) {
-      panelTopToBottom.push(layer(numbered('主体'), mainPixels, null, width, height, false, { transparencyProtected: true }))
+      panelTopToBottom.push(layer(numbered('Subject'), mainPixels, null, width, height, false, { transparencyProtected: true }))
     }
     if (textGroups.length) {
-      panelTopToBottom.push({ name: numbered('文字与 Logo'), opened: false, children: textGroups })
+      panelTopToBottom.push({ name: numbered('Text & logo'), opened: false, children: textGroups })
     }
     if (propCropped) {
-      panelTopToBottom.push(layerCropped(numbered('道具'), propCropped, { transparencyProtected: true }))
+      panelTopToBottom.push(layerCropped(numbered('Props'), propCropped, { transparencyProtected: true }))
     }
     if (decoCropped) {
       panelTopToBottom.push(
-        layerCropped(numbered(hasSubject ? '光影与装饰' : '高光与装饰'), decoCropped, {
+        layerCropped(numbered(hasSubject ? 'Lighting & decor' : 'Highlights & decor'), decoCropped, {
           opacity: hasSubject ? 190 : 210
         })
       )
     } else {
       panelTopToBottom.push(
-        layer(numbered(hasSubject ? '光影与装饰' : '高光与装饰'), decorationPixels, null, width, height, false, {
+        layer(numbered(hasSubject ? 'Lighting & decor' : 'Highlights & decor'), decorationPixels, null, width, height, false, {
           opacity: hasSubject ? 190 : 210
         })
       )
     }
     // 干净背景：不透明整幅，作为对齐基准（0,0）
-    panelTopToBottom.push(layer(numbered('干净背景'), cleanBackground, null, width, height, false))
-    panelTopToBottom.push(layer(numbered('原图备份'), source, null, width, height, false, {
+    panelTopToBottom.push(layer(numbered('Clean background'), cleanBackground, null, width, height, false))
+    panelTopToBottom.push(layer(numbered('Original backup'), source, null, width, height, false, {
       hidden: true,
       protected: { transparency: true, composite: true, position: true }
     }))
-    const layerNames = panelTopToBottom.map((item) => String(item.name || '图层'))
+    const layerNames = panelTopToBottom.map((item) => String(item.name || 'Layer'))
     const children: Layer[] = [...panelTopToBottom].reverse()
 
-    input.onProgress(84, '正在写入可编辑 PSD')
+    input.onProgress(84, 'Writing editable PSD')
     const psd: Psd = {
       width,
       height,
@@ -1826,7 +1826,7 @@ export async function processImageToPsd(input: {
     await writeFile(temporaryOutput, encoded)
     await rename(temporaryOutput, input.outputPath)
     const outputStat = await stat(input.outputPath)
-    input.onProgress(100, 'PSD 已导出')
+    input.onProgress(100, 'PSD exported')
     return {
       path: input.outputPath,
       width,

@@ -23,7 +23,7 @@ const emit = defineEmits<{
       <div class="showcase-nav-meta">
         <span>Creative Production OS</span>
         <span class="showcase-version">{{ version ? `v${version}` : 'Local-first' }}</span>
-        <button type="button" class="showcase-text-button" @click="emit('settings')">Settings / 设置</button>
+        <button type="button" class="showcase-text-button" @click="emit('settings')">Settings</button>
       </div>
     </header>
 
@@ -33,11 +33,11 @@ const emit = defineEmits<{
         <h1 id="showcase-title">Make the image.<br /><em>Keep the control.</em></h1>
         <p class="showcase-lede">
           A local-first creative production workspace for generation, editing, batch remake, PSD delivery and turntable previews.
-          <span>你的 Key 只发给你确认的 Provider；产物留在这台 Mac。</span>
+          <span>Your key only goes to the provider you confirm; deliverables stay on this Mac.</span>
         </p>
         <div class="showcase-actions">
-          <button type="button" class="showcase-primary" @click="emit('start')">Start creating <span>开始创作</span> <b>↗</b></button>
-          <button type="button" class="showcase-secondary" @click="emit('settings')">Configure provider <span>配置 API</span></button>
+          <button type="button" class="showcase-primary" @click="emit('start')">Start creating <b>↗</b></button>
+          <button type="button" class="showcase-secondary" @click="emit('settings')">Configure provider</button>
         </div>
         <div class="showcase-proof-line">
           <span><i class="proof-dot" /> {{ configured ? 'Provider ready' : 'Bring your own key' }}</span>
@@ -64,7 +64,7 @@ const emit = defineEmits<{
 
     <section class="showcase-feature-section">
       <div class="showcase-section-head">
-        <p class="showcase-kicker">THE WORKBENCH / 工作台</p>
+        <p class="showcase-kicker">THE WORKBENCH</p>
         <h2>From first frame<br /><em>to final deliverable.</em></h2>
         <p>Six workflows, one local queue. Every generated frame becomes a usable file—not a disappearing URL.</p>
       </div>
@@ -104,7 +104,7 @@ const emit = defineEmits<{
 
     <footer class="showcase-footer">
       <span>Local queue · Local history · Local deliverables</span>
-      <span>English first / 中文辅助</span>
+      <span>English only</span>
       <button type="button" class="showcase-text-button" @click="emit('start')">Enter workspace →</button>
     </footer>
   </main>

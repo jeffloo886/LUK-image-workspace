@@ -184,7 +184,7 @@ export async function compositeLocalCrop(input: CompositeLocalCropInput): Promis
   const meta = await scene.metadata()
   const width = meta.width || 0
   const height = meta.height || 0
-  if (!width || !height) throw new Error('场景图尺寸无效')
+  if (!width || !height) throw new Error('Scene image dimensions are invalid')
 
   const size = clamp(Math.round(input.cropBox.size), 16, Math.min(width, height))
   const left = clamp(Math.round(input.cropBox.x), 0, Math.max(0, width - size))

@@ -92,11 +92,11 @@ async function seedOneModel(model: ModelSpec, fromDir: string, toDir: string): P
   const info = await stat(partial)
   if (info.size !== model.size) {
     await rm(partial, { force: true })
-    throw new Error(`${model.file} 大小不符（${info.size} ≠ ${model.size}）`)
+    throw new Error(`${model.file} size mismatch (${info.size} != ${model.size})`)
   }
   if ((await sha256OfFile(partial)) !== model.sha256) {
     await rm(partial, { force: true })
-    throw new Error(`${model.file} 校验失败`)
+    throw new Error(`${model.file} checksum verification failed`)
   }
   await rename(partial, target)
 }
@@ -131,17 +131,17 @@ export async function initAndSeedModels(): Promise<void> {
   if (!(await checkAiModels(bundleDir)).ready) {
     // bundle 也没有（例如更新包剥离了模型且从未播种）—— 停在 bundle 路径，交给「修复模型」
     activeModelsDir = bundleDir
-    emit({ phase: 'error', message: '模型缺失，可在设置里重新校验/修复' })
+    emit({ phase: 'error', message: 'Models are missing. Verify or repair them in Settings.' })
     return
   }
 
-  emit({ phase: 'seeding', progress: 0, message: '首次准备模型…' })
+  emit({ phase: 'seeding', progress: 0, message: 'Preparing models for first use…' })
   try {
     await mkdir(userDir, { recursive: true })
     if (!(await hasRoomFor(userDir, AI_MODELS_TOTAL_BYTES))) {
       // 空间不足：留在 bundle，功能照常，只是没省下空间
       activeModelsDir = bundleDir
-      emit({ phase: 'ready', message: '磁盘空间不足，模型暂留安装包内' })
+      emit({ phase: 'ready', message: 'Not enough disk space; models remain in the app bundle' })
       return
     }
 
@@ -186,7 +186,7 @@ async function tryReclaimBundleCopy(): Promise<void> {
 export async function repairModels(): Promise<ModelStoreStatus> {
   const userDir = userModelsDir()
   await mkdir(userDir, { recursive: true })
-  emit({ phase: 'repairing', progress: 0, message: '正在下载模型…' })
+  emit({ phase: 'repairing', progress: 0, message: 'Downloading models…' })
 
   let done = 0
   for (const model of AI_MODEL_LIST) {
@@ -198,7 +198,7 @@ export async function repairModels(): Promise<ModelStoreStatus> {
       try {
         await downloadOneModel(model, userDir)
       } catch (error) {
-        const status: ModelStoreStatus = { phase: 'error', message: `${model.file} 下载失败：${(error as Error).message}` }
+        const status: ModelStoreStatus = { phase: 'error', message: `${model.file} download failed: ${(error as Error).message}` }
         emit(status)
         return status
       }
@@ -222,7 +222,7 @@ async function downloadOneModel(model: ModelSpec, toDir: string): Promise<void> 
       const response = await fetch(url, { redirect: 'follow' })
       if (!response.ok || !response.body) throw new Error(`HTTP ${response.status}`)
       await pipeline(Readable.fromWeb(response.body as import('node:stream/web').ReadableStream), createWriteStream(partial))
-      if ((await sha256OfFile(partial)) !== model.sha256) throw new Error('sha256 不匹配')
+      if ((await sha256OfFile(partial)) !== model.sha256) throw new Error('SHA-256 checksum mismatch')
       await rename(partial, target)
       return
     } catch (error) {
@@ -230,7 +230,7 @@ async function downloadOneModel(model: ModelSpec, toDir: string): Promise<void> 
       await rm(partial, { force: true }).catch(() => undefined)
     }
   }
-  throw new Error(lastError instanceof Error ? lastError.message : '全部镜像失败')
+  throw new Error(lastError instanceof Error ? lastError.message : 'All model mirrors failed')
 }
 
 /** 设置页展示用：userData 里实际占用的模型字节数。 */

@@ -153,7 +153,7 @@ export async function detectTextBoxes(input: {
   const mapH = Number(dims[dims.length - 2] || rh)
   const mapW = Number(dims[dims.length - 1] || rw)
   const values = output.data as Float32Array
-  if (values.length < mapH * mapW) throw new Error('文字检测输出尺寸异常')
+  if (values.length < mapH * mapW) throw new Error('Text detection output dimensions are invalid')
 
   const bitmap = new Uint8Array(mapW * mapH)
   for (let index = 0; index < mapW * mapH; index += 1) {

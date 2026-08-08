@@ -26,7 +26,7 @@ export function loadSession(modelPath: string, executionProviders: string[]): Pr
         lastError = error
       }
     }
-    throw lastError instanceof Error ? lastError : new Error('ONNX 推理会话创建失败')
+    throw lastError instanceof Error ? lastError : new Error('Unable to create the ONNX inference session')
   })()
   pending.catch(() => sessionCache.delete(modelPath))
   sessionCache.set(modelPath, pending)

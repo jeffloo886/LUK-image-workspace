@@ -41,7 +41,7 @@ const cropBox = ref<CropBox | null>(props.initialCropBox ? { ...props.initialCro
 const imageSize = ref({ width: 0, height: 0 })
 const stageSize = ref({ width: 800, height: 560 })
 const status = ref<'loading' | 'ready' | 'error'>('loading')
-const statusText = ref('正在加载场景图…')
+const statusText = ref('Loading scene image…')
 const displaySrc = ref('')
 const drawing = ref(false)
 const currentPath = ref<MaskPath | null>(null)
@@ -167,7 +167,7 @@ function coerceBytes(bytes: ArrayBuffer | Uint8Array | { type?: string; data?: n
   if (bytes && typeof bytes === 'object' && Array.isArray((bytes as { data?: number[] }).data)) {
     return Uint8Array.from((bytes as { data: number[] }).data)
   }
-  throw new Error('场景图字节无效')
+  throw new Error('Invalid scene image data')
 }
 
 function toBlobPart(bytes: ArrayBuffer | Uint8Array | { type?: string; data?: number[] }): ArrayBuffer {
@@ -179,20 +179,20 @@ function toBlobPart(bytes: ArrayBuffer | Uint8Array | { type?: string; data?: nu
 
 async function loadSceneFromId(): Promise<void> {
   status.value = 'loading'
-  statusText.value = '正在加载场景图…'
+  statusText.value = 'Loading scene image…'
   displaySrc.value = ''
   revokeObjectUrl()
   try {
-    if (!props.imageId) throw new Error('缺少场景图')
-    if (!window.desktop?.readSelectedImage) throw new Error('桌面读图能力不可用')
+    if (!props.imageId) throw new Error('No scene image was selected')
+    if (!window.desktop?.readSelectedImage) throw new Error('Desktop image access is unavailable')
     const selected = await window.desktop.readSelectedImage(props.imageId)
     const buffer = toBlobPart(selected.bytes)
-    if (!buffer.byteLength) throw new Error('场景图文件为空')
+    if (!buffer.byteLength) throw new Error('The scene image is empty')
     objectUrl = URL.createObjectURL(new Blob([buffer], { type: selected.type || 'image/jpeg' }))
     displaySrc.value = objectUrl
   } catch (error) {
     status.value = 'error'
-    statusText.value = error instanceof Error ? error.message : '场景图加载失败'
+    statusText.value = error instanceof Error ? error.message : 'Failed to load the scene image'
   }
 }
 
@@ -253,7 +253,7 @@ function onImageLoad(): void {
   const image = imageRef.value
   if (!image?.naturalWidth) {
     status.value = 'error'
-    statusText.value = '场景图尺寸无效'
+    statusText.value = 'The scene image dimensions are invalid'
     return
   }
   imageSize.value = { width: image.naturalWidth, height: image.naturalHeight }
@@ -281,7 +281,7 @@ function onImageLoad(): void {
 
 function onImageError(): void {
   status.value = 'error'
-  statusText.value = '场景图显示失败，请重新上传'
+  statusText.value = 'Failed to display the scene image. Please choose it again.'
 }
 
 function syncImageIfAlreadyLoaded(): void {
@@ -475,13 +475,13 @@ function placeCenteredCrop(): void {
 
 function confirm(): void {
   if (!cropBox.value) {
-    statusText.value = '请先设置裁切框'
+    statusText.value = 'Set a crop box first'
     tool.value = 'crop'
     return
   }
   const image = imageRef.value
   if (!image || status.value !== 'ready') {
-    statusText.value = '场景图尚未加载完成'
+    statusText.value = 'The scene image has not finished loading'
     return
   }
   const maxEdge = 1600
@@ -591,32 +591,32 @@ onBeforeUnmount(() => {
 <template>
   <Teleport to="body">
     <div class="scene-editor-overlay" @mousedown.self="emit('close')">
-      <div class="scene-editor-dialog" role="dialog" aria-label="编辑场景图" @mousedown.stop>
+      <div class="scene-editor-dialog" role="dialog" aria-label="Edit scene image" @mousedown.stop>
         <header class="scene-editor-toolbar">
           <div class="tool-group">
-            <button :class="{ active: tool === 'brush' }" type="button" @click="tool = 'brush'"><Paintbrush :size="15" />画笔</button>
-            <button :class="{ active: tool === 'eraser' }" type="button" @click="tool = 'eraser'"><Eraser :size="15" />橡皮擦</button>
-            <button :class="{ active: tool === 'crop' }" type="button" @click="selectCropTool"><Crop :size="15" />裁切框</button>
+            <button :class="{ active: tool === 'brush' }" type="button" @click="tool = 'brush'"><Paintbrush :size="15" />Brush</button>
+            <button :class="{ active: tool === 'eraser' }" type="button" @click="tool = 'eraser'"><Eraser :size="15" />Eraser</button>
+            <button :class="{ active: tool === 'crop' }" type="button" @click="selectCropTool"><Crop :size="15" />Crop box</button>
           </div>
           <label class="slider-field">
-            <span>大小</span>
+            <span>Size</span>
             <input v-model.number="activeSize" type="range" :min="sizeSliderMin" :max="sizeSliderMax" :step="sizeSliderStep" />
             <em>{{ Math.round(activeSize) }}px</em>
           </label>
           <label class="slider-field">
-            <span>透明度</span>
+            <span>Opacity</span>
             <input v-model.number="maskOpacity" type="range" min="10" max="100" step="1" />
             <em>{{ maskOpacity }}%</em>
           </label>
           <label class="slider-field">
-            <span>缩放</span>
+            <span>Zoom</span>
             <input v-model.number="zoom" type="range" :min="ZOOM_MIN" :max="ZOOM_MAX" step="5" />
             <em>{{ zoom }}%</em>
           </label>
           <div class="toolbar-actions">
-            <button type="button" class="ghost" @click="clearEdit"><Trash2 :size="14" />清空编辑</button>
-            <button type="button" class="primary" :disabled="status !== 'ready'" @click="confirm"><Check :size="14" />确定</button>
-            <button type="button" class="icon-close" aria-label="关闭" @click="emit('close')"><X :size="16" /></button>
+            <button type="button" class="ghost" @click="clearEdit"><Trash2 :size="14" />Clear edits</button>
+            <button type="button" class="primary" :disabled="status !== 'ready'" @click="confirm"><Check :size="14" />Confirm</button>
+            <button type="button" class="icon-close" aria-label="Close" @click="emit('close')"><X :size="16" /></button>
           </div>
         </header>
 
@@ -642,7 +642,7 @@ onBeforeUnmount(() => {
               ref="imageRef"
               class="scene-image"
               :src="displaySrc"
-              alt="场景图"
+              alt="Scene image"
               draggable="false"
               @load="onImageLoad"
               @error="onImageError"
@@ -658,9 +658,9 @@ onBeforeUnmount(() => {
         </div>
 
         <p class="scene-editor-hint">
-          AI 图像工作台 · 场景编辑
+          LUK Image Workspace · Scene editor
           <template v-if="status === 'ready'"> · {{ imageSize.width }}×{{ imageSize.height }}</template>
-          · B 画笔 · E 橡皮 · C 裁切框 · [ ] 笔刷大小 · ⌘Z 撤销 · 双指捏合缩放
+          · B brush · E eraser · C crop box · [ ] brush size · ⌘Z undo · pinch to zoom
         </p>
       </div>
     </div>

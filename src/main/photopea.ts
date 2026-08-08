@@ -81,7 +81,7 @@ export function isPhotopeaSender(sender: WebContents): boolean {
 }
 
 export function assertPhotopeaSender(event: IpcMainInvokeEvent): void {
-  if (!isPhotopeaSender(event.sender)) throw new Error('拒绝未授权的 Photopea 调用')
+  if (!isPhotopeaSender(event.sender)) throw new Error('Unauthorized Photopea call rejected')
 }
 
 export async function assertEditableWorkspaceFile(
@@ -91,15 +91,15 @@ export async function assertEditableWorkspaceFile(
 ): Promise<string> {
   const resolved = path.resolve(String(filePath || ''))
   const extension = path.extname(resolved).toLowerCase()
-  if (!ALLOWED_EXTENSIONS.has(extension)) throw new Error('仅支持打开 PSD / PNG / JPG / WebP / GIF')
+  if (!ALLOWED_EXTENSIONS.has(extension)) throw new Error('Only PSD, PNG, JPG, WebP, and GIF files can be opened')
   const outputRoot = path.resolve(outputDirectory)
   const underOutput = resolved === outputRoot || resolved.startsWith(outputRoot + path.sep)
   const known = knownFiles?.has(resolved)
-  if (!underOutput && !known) throw new Error('拒绝打开工作目录以外的文件')
+  if (!underOutput && !known) throw new Error('Opening files outside the workspace is not allowed')
   const info = await stat(resolved)
-  if (!info.isFile()) throw new Error('文件不存在或不可读')
-  if (info.size <= 0) throw new Error('文件为空')
-  if (info.size > MAX_EDIT_BYTES) throw new Error('文件超过 200 MB，暂不支持内嵌编辑')
+  if (!info.isFile()) throw new Error('The file does not exist or cannot be read')
+  if (info.size <= 0) throw new Error('The file is empty')
+  if (info.size > MAX_EDIT_BYTES) throw new Error('Files over 200 MB cannot be edited in-app')
   return resolved
 }
 
@@ -289,13 +289,13 @@ export async function savePhotopeaDocument(options: {
   assertPhotopeaSender(options.event)
   const session = activeSession
   if (!session || session.sessionId !== String(options.payload.sessionId || '')) {
-    throw new Error('编辑会话已失效，请重新打开文件')
+    throw new Error('The edit session expired. Open the file again.')
   }
 
   const format = options.payload.format === 'png' ? 'png' : 'psd'
   const bytes = Buffer.from(options.payload.bytes || new ArrayBuffer(0))
-  if (!bytes.byteLength) throw new Error('保存内容为空')
-  if (bytes.byteLength > MAX_EDIT_BYTES) throw new Error('保存文件超过 200 MB')
+  if (!bytes.byteLength) throw new Error('The save content is empty')
+  if (bytes.byteLength > MAX_EDIT_BYTES) throw new Error('The saved file is over 200 MB')
 
   const requestedMode = options.payload.mode === 'saveAs' ? 'saveAs' : 'overwrite'
   const sourceExt = path.extname(session.sourcePath).toLowerCase()
@@ -347,7 +347,7 @@ export function reportPhotopeaHostError(event: IpcMainInvokeEvent, message: stri
   broadcastToMain('desktop:photopea-event', {
     type: 'error',
     sessionId: activeSession?.sessionId || '',
-    message: String(message || 'Photopea 编辑器出错').slice(0, 300)
+    message: String(message || 'Photopea editor error').slice(0, 300)
   })
   return true
 }

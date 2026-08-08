@@ -86,7 +86,11 @@ run('/usr/bin/ditto', ['-c', '-k', '--sequesterRsrc', '--keepParent', path.join(
 rmSync(staging, { recursive: true, force: true })
 
 // 6. DMG（含模型，供全新安装）—— 复用已打包的 .app，不二次完整 pack
-run('npx', ['electron-builder', '--mac', 'dmg', '--arm64', '--prepackaged', path.join(root, 'build/release/mac-arm64')])
+// electron-builder expects the prepackaged .app itself. Passing the parent
+// mac-arm64 directory creates a broken nested bundle:
+//   LUK Image Workspace.app/LUK Image Workspace.app/Contents/...
+// Finder then reports that the application is damaged or incomplete.
+run('npx', ['electron-builder', '--mac', 'dmg', '--arm64', '--prepackaged', appPath])
 const dmg = path.join(releaseDir, `LUK-Image-Workspace-${version}-arm64.dmg`)
 if (!existsSync(dmg)) fail('DMG 生成失败')
 

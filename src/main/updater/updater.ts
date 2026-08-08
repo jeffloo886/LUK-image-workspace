@@ -131,7 +131,7 @@ export async function checkForUpdates(manual: boolean): Promise<UpdaterState> {
   // 占位公钥时自动检查静默跳过；手动检查明确告知
   if (UPDATE_KEY_IS_PLACEHOLDER) {
     const result: UpdaterState = manual
-      ? { phase: 'error', message: '更新签名公钥尚未配置，暂无法检查更新', releasePage: UPDATE_RELEASES_PAGE }
+      ? { phase: 'error', message: 'The update signing key is not configured; updates cannot be checked yet', releasePage: UPDATE_RELEASES_PAGE }
       : { phase: 'idle' }
     if (manual) setState(result)
     return result
@@ -143,11 +143,11 @@ export async function checkForUpdates(manual: boolean): Promise<UpdaterState> {
     if (!response.ok) throw new Error(`HTTP ${response.status}`)
     const manifest = (await response.json()) as LatestManifest
     if (!manifest?.version || !manifest.url || !manifest.sha256 || !manifest.signature) {
-      throw new Error('更新信息格式异常')
+      throw new Error('The update manifest is invalid')
     }
 
     if (!verifySignature(manifest)) {
-      setState({ phase: 'error', message: '更新签名校验失败，已拒绝', releasePage: UPDATE_RELEASES_PAGE })
+      setState({ phase: 'error', message: 'Update signature verification failed; update rejected', releasePage: UPDATE_RELEASES_PAGE })
       return state
     }
 
@@ -164,7 +164,7 @@ export async function checkForUpdates(manual: boolean): Promise<UpdaterState> {
   } catch (error) {
     const result: UpdaterState = {
       phase: 'error',
-      message: `检查更新失败：${(error as Error).message}`,
+      message: `Update check failed: ${(error as Error).message}`,
       releasePage: UPDATE_RELEASES_PAGE
     }
     // 自动检查失败保持静默（不打扰用户），手动检查才落地为错误态
@@ -188,7 +188,7 @@ export async function downloadUpdate(): Promise<UpdaterState> {
 
     setState({ phase: 'downloading', version: manifest.version, progress: 0 })
     const response = await fetch(manifest.url, { redirect: 'follow' })
-    if (!response.ok || !response.body) throw new Error(`下载失败 HTTP ${response.status}`)
+    if (!response.ok || !response.body) throw new Error(`Download failed: HTTP ${response.status}`)
 
     const total = Number(response.headers.get('content-length') || manifest.size)
     let received = 0
@@ -204,21 +204,21 @@ export async function downloadUpdate(): Promise<UpdaterState> {
 
     // 完整性：大小 + sha256（签名已在 check 阶段验过，此处再核对内容一致）
     const info = await stat(partPath)
-    if (info.size !== manifest.size) throw new Error('下载大小不符')
-    if ((await sha256OfFile(partPath)) !== manifest.sha256) throw new Error('下载校验失败')
+    if (info.size !== manifest.size) throw new Error('Downloaded size does not match the manifest')
+    if ((await sha256OfFile(partPath)) !== manifest.sha256) throw new Error('Downloaded checksum verification failed')
     await rename(partPath, zipPath)
 
     // 解压：必须 ditto，adm-zip/yauzl 会毁掉 framework 的 Versions/Current 符号链接
     const stagingRoot = await mkdtemp(path.join(workDir, 'staging-'))
     await execFileAsync('/usr/bin/ditto', ['-x', '-k', zipPath, stagingRoot])
     const stagedApp = await findAppBundle(stagingRoot)
-    if (!stagedApp) throw new Error('更新包内未找到 .app')
+    if (!stagedApp) throw new Error('No .app was found in the update package')
 
     // 校验暂存包身份，防止装错东西
     const bundleId = await plistValue(stagedApp, 'CFBundleIdentifier')
-    if (bundleId !== EXPECTED_BUNDLE_ID) throw new Error('更新包身份不符，已拒绝')
+    if (bundleId !== EXPECTED_BUNDLE_ID) throw new Error('Update package identity does not match; rejected')
     const bundleVersion = await plistValue(stagedApp, 'CFBundleShortVersionString')
-    if (bundleVersion !== manifest.version) throw new Error('更新包版本与预期不符')
+    if (bundleVersion !== manifest.version) throw new Error('Update package version does not match the manifest')
 
     stagedAppPath = stagedApp
     await rm(zipPath, { force: true })
@@ -250,14 +250,14 @@ async function plistValue(appBundle: string, key: string): Promise<string> {
 type PreflightResult = { ok: true; bundle: string } | { ok: false; message: string; releasePage?: boolean }
 
 async function preflight(): Promise<PreflightResult> {
-  if (!app.isPackaged) return { ok: false, message: '开发模式不支持自更新' }
+  if (!app.isPackaged) return { ok: false, message: 'Self-update is not available in development mode' }
 
   const bundle = bundlePath()
   const realBundle = await realpath(bundle).catch(() => bundle)
 
   // App Translocation：被隔离时从只读随机路径运行，替换必然失败
   if (realBundle.includes('/AppTranslocation/') || realBundle.includes('/private/var/folders/')) {
-    return { ok: false, message: '应用正在从只读的临时位置运行，请拖到「应用程序」后重新打开', releasePage: true }
+    return { ok: false, message: 'The app is running from a read-only temporary location. Move it to Applications and reopen it.', releasePage: true }
   }
 
   // 只允许在 /Applications 或 ~/Applications 下更新
@@ -265,7 +265,7 @@ async function preflight(): Promise<PreflightResult> {
   const inApplications =
     realBundle.startsWith('/Applications/') || realBundle.startsWith(path.join(home, 'Applications') + path.sep)
   if (!inApplications) {
-    return { ok: false, message: '请先把应用放进「应用程序」文件夹再更新', releasePage: true }
+    return { ok: false, message: 'Move the app to the Applications folder before updating.', releasePage: true }
   }
 
   // 写权限探针：真建一个临时目录（fs.access 在 ACL 下会说谎）
@@ -274,7 +274,7 @@ async function preflight(): Promise<PreflightResult> {
     await mkdir(probe)
     await rm(probe, { recursive: true, force: true })
   } catch {
-    return { ok: false, message: '没有「应用程序」文件夹的写入权限，请用管理员账号，或手动下载安装', releasePage: true }
+    return { ok: false, message: 'The Applications folder is not writable. Use an administrator account or download the update manually.', releasePage: true }
   }
 
   return { ok: true, bundle: realBundle }
@@ -282,7 +282,7 @@ async function preflight(): Promise<PreflightResult> {
 
 export async function applyUpdate(): Promise<UpdaterState> {
   if (!stagedAppPath) {
-    setState({ phase: 'error', message: '没有可应用的更新' })
+    setState({ phase: 'error', message: 'There is no staged update to apply' })
     return state
   }
   const check = await preflight()
@@ -349,7 +349,7 @@ open "\${APP_PATH}"
     setTimeout(() => app.quit(), 300)
     return state
   } catch (error) {
-    setState({ phase: 'error', message: `应用更新失败：${(error as Error).message}` })
+    setState({ phase: 'error', message: `Application update failed: ${(error as Error).message}` })
     return state
   }
 }
@@ -361,7 +361,7 @@ export async function reconcilePendingUpdate(): Promise<void> {
   try {
     const status = await readFile(marker, 'utf8').catch(() => '')
     if (status.includes('swap-failed')) {
-      setState({ phase: 'error', message: '上次更新未完成，已回滚到当前版本' })
+      setState({ phase: 'error', message: 'The previous update did not finish; the current version was restored' })
     }
     await rm(marker, { force: true })
     await rm(path.join(workDir, 'pending-update.json'), { force: true })

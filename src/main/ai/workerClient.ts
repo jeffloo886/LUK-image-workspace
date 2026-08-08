@@ -41,11 +41,11 @@ function ensureWorker(): ChildProcess {
     pending.delete(message.id)
     clearTimeout(entry.timeout)
     if (message.ok) entry.resolve(message)
-    else entry.reject(new Error(message.error || 'AI 推理子进程返回错误'))
+    else entry.reject(new Error(message.error || 'The AI inference worker returned an error'))
   })
   proc.on('exit', (code, signal) => {
     if (child === proc) child = null
-    rejectAllPending(new Error(`AI 推理子进程异常退出（code=${code}, signal=${signal}）`))
+    rejectAllPending(new Error(`The AI inference worker exited unexpectedly (code=${code}, signal=${signal})`))
   })
   proc.on('error', (error) => {
     if (child === proc) child = null
@@ -61,7 +61,7 @@ function call<T>(request: Record<string, unknown>): Promise<T> {
   return new Promise<T>((resolve, reject) => {
     const timeout = setTimeout(() => {
       pending.delete(id)
-      reject(new Error('AI 推理子进程超时'))
+      reject(new Error('The AI inference worker timed out'))
     }, REQUEST_TIMEOUT_MS)
     pending.set(id, { resolve, reject, timeout })
     proc.send({ id, ...request })

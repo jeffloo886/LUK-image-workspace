@@ -227,7 +227,7 @@ async function persistSettings(next: DesktopSettings): Promise<DesktopSettings> 
 
 function assertTrustedSender(event: IpcMainInvokeEvent): void {
   if (!mainWindow || event.sender !== mainWindow.webContents || event.senderFrame !== mainWindow.webContents.mainFrame) {
-    throw new Error('拒绝未授权的桌面调用')
+    throw new Error('Unauthorized desktop call rejected')
   }
 }
 
@@ -266,7 +266,7 @@ async function uniqueDestination(directory: string, baseName: string, extension:
 }
 
 async function selectImages(event: IpcMainInvokeEvent): Promise<SelectedImage[]> {
-  return selectWorkflowImages(event, { limit: 4, title: '选择参考图片' })
+  return selectWorkflowImages(event, { limit: 4, title: 'Choose reference images' })
 }
 
 async function selectWorkflowImages(
@@ -277,15 +277,15 @@ async function selectWorkflowImages(
   if (!mainWindow) return []
   const limit = Math.max(1, Math.min(20, Math.floor(Number(options.limit || 4))))
   const result = await dialog.showOpenDialog(mainWindow, {
-    title: String(options.title || '选择图片').slice(0, 80),
+    title: String(options.title || 'Choose images').slice(0, 80),
     properties: ['openFile', 'multiSelections'],
-    filters: [{ name: '图片', extensions: ['png', 'jpg', 'jpeg', 'webp', 'gif'] }]
+    filters: [{ name: 'Images', extensions: ['png', 'jpg', 'jpeg', 'webp', 'gif'] }]
   })
   if (result.canceled) return []
   const images: SelectedImage[] = []
   for (const filePath of result.filePaths.slice(0, limit)) {
     const fileStat = await stat(filePath)
-    if (fileStat.size > 25 * 1024 * 1024) throw new Error('单张图片不能超过 25 MB')
+    if (fileStat.size > 25 * 1024 * 1024) throw new Error('Each image must be smaller than 25 MB')
     const id = randomUUID()
     const type = mimeFromExtension(filePath)
     const bytes = await readFile(filePath)
@@ -305,14 +305,14 @@ async function selectPsdImage(event: IpcMainInvokeEvent): Promise<SelectedImage 
   assertTrustedSender(event)
   if (!mainWindow) return null
   const result = await dialog.showOpenDialog(mainWindow, {
-    title: '选择需要分层的商品图',
+    title: 'Choose a product image to extract layers',
     properties: ['openFile'],
-    filters: [{ name: '商品图片', extensions: ['png', 'jpg', 'jpeg', 'webp'] }]
+    filters: [{ name: 'Product images', extensions: ['png', 'jpg', 'jpeg', 'webp'] }]
   })
   if (result.canceled || !result.filePaths[0]) return null
   const filePath = result.filePaths[0]
   const fileStat = await stat(filePath)
-  if (fileStat.size > 50 * 1024 * 1024) throw new Error('图片不能超过 50 MB')
+  if (fileStat.size > 50 * 1024 * 1024) throw new Error('Images must be smaller than 50 MB')
   const id = randomUUID()
   const type = mimeFromExtension(filePath)
   const bytes = await readFile(filePath)
@@ -332,7 +332,7 @@ async function importAuthorizedImage(
 ): Promise<SelectedImage> {
   assertTrustedSender(event)
   const source = String(payload?.source || '').trim()
-  if (!source) throw new Error('缺少可导入的图片来源')
+  if (!source) throw new Error('No image source to import')
 
   let bytes: Buffer
   let type = 'image/png'
@@ -340,7 +340,7 @@ async function importAuthorizedImage(
 
   if (source.startsWith('data:image/')) {
     const match = /^data:(image\/[a-zA-Z0-9+.-]+);base64,([\s\S]+)$/.exec(source)
-    if (!match) throw new Error('data URL 无效')
+    if (!match) throw new Error('Invalid data URL')
     type = match[1].toLowerCase()
     bytes = Buffer.from(match[2], 'base64')
     if (!name.includes('.')) {
@@ -348,9 +348,9 @@ async function importAuthorizedImage(
     }
   } else if (/^https?:\/\//i.test(source)) {
     const remoteUrl = new URL(source)
-    if (!['http:', 'https:'].includes(remoteUrl.protocol)) throw new Error('只允许导入 http(s) 图片')
+    if (!['http:', 'https:'].includes(remoteUrl.protocol)) throw new Error('Only http(s) images can be imported')
     const response = await net.fetch(remoteUrl.toString())
-    if (!response.ok) throw new Error(`下载图片失败：HTTP ${response.status}`)
+    if (!response.ok) throw new Error(`Image download failed: HTTP ${response.status}`)
     bytes = Buffer.from(await response.arrayBuffer())
     const contentType = String(response.headers.get('content-type') || '').toLowerCase()
     if (contentType.includes('jpeg')) type = 'image/jpeg'
@@ -370,15 +370,15 @@ async function importAuthorizedImage(
     const knownSelected = [...selectedFiles.values()].some((item) => path.resolve(item) === resolved)
     const knownComposite = generatedLocalCropFiles.has(resolved)
     if (!underOutput && !underUserData && !knownSelected && !knownComposite) {
-      throw new Error('拒绝导入未授权本地文件')
+      throw new Error('Importing an unauthorized local file is not allowed')
     }
     bytes = await readFile(resolved)
     type = mimeFromExtension(resolved)
     if (!String(payload?.name || '').trim()) name = path.basename(resolved)
   }
 
-  if (!bytes.length) throw new Error('图片为空')
-  if (bytes.byteLength > 50 * 1024 * 1024) throw new Error('图片不能超过 50 MB')
+  if (!bytes.length) throw new Error('The image is empty')
+  if (bytes.byteLength > 50 * 1024 * 1024) throw new Error('Images must be smaller than 50 MB')
   if (!['image/png', 'image/jpeg', 'image/webp', 'image/gif'].includes(type)) {
     // 远端可能返回 octet-stream；按内容交给 sharp 统一转 png
     type = 'image/png'
@@ -412,9 +412,9 @@ async function importPsdImage(
 ): Promise<SelectedImage> {
   assertTrustedSender(event)
   const bytes = Buffer.from(payload.bytes)
-  if (!bytes.length || bytes.byteLength > 50 * 1024 * 1024) throw new Error('图片必须小于 50 MB')
+  if (!bytes.length || bytes.byteLength > 50 * 1024 * 1024) throw new Error('The image must be smaller than 50 MB')
   const type = String(payload.type || '').toLowerCase()
-  if (!['image/png', 'image/jpeg', 'image/webp'].includes(type)) throw new Error('仅支持 PNG、JPG 和 WebP')
+  if (!['image/png', 'image/jpeg', 'image/webp'].includes(type)) throw new Error('Only PNG, JPG, and WebP images are supported')
   const originalExtension = path.extname(String(payload.name || '')).toLowerCase()
   const extension = /^\.(png|jpe?g|webp)$/.test(originalExtension)
     ? originalExtension
@@ -422,13 +422,13 @@ async function importPsdImage(
   const id = randomUUID()
   const cacheDirectory = path.join(app.getPath('userData'), 'psd-imports')
   await mkdir(cacheDirectory, { recursive: true })
-  const fileName = `${id}-${safeFilePart(path.basename(String(payload.name || '商品图'), originalExtension))}${extension}`
+  const fileName = `${id}-${safeFilePart(path.basename(String(payload.name || 'product-image'), originalExtension))}${extension}`
   const filePath = path.join(cacheDirectory, fileName)
   await writeFile(filePath, bytes)
   selectedFiles.set(id, filePath)
   return {
     id,
-    name: path.basename(String(payload.name || `商品图${extension}`)),
+    name: path.basename(String(payload.name || `product-image${extension}`)),
     type,
     size: bytes.byteLength,
     previewDataUrl: `data:${type};base64,${bytes.toString('base64')}`
@@ -506,7 +506,7 @@ function startSpeechHelper(): boolean {
   })
   helper.on('error', (error) => {
     if (speechHelper === helper) speechHelper = null
-    sendVoiceEvent({ type: 'error', message: `语音识别组件启动失败：${error.message}` })
+    sendVoiceEvent({ type: 'error', message: `Speech recognition component failed to start: ${error.message}` })
   })
   helper.on('exit', (code) => {
     if (speechHelper === helper) speechHelper = null
@@ -526,7 +526,7 @@ async function decodeMaskPngBase64(dataUrlOrBase64: string, width: number, heigh
     .greyscale()
     .raw()
     .toBuffer({ resolveWithObject: true })
-  if (info.channels !== 1 || data.length !== width * height) throw new Error('蒙版解码失败')
+  if (info.channels !== 1 || data.length !== width * height) throw new Error('Unable to decode the mask')
   return new Uint8Array(data)
 }
 
@@ -535,9 +535,9 @@ async function preparePsdDraftHandler(
   payload: { taskId: string; imageId: string; options: PsdProcessOptions }
 ) {
   assertTrustedSender(event)
-  if (!mainWindow) throw new Error('桌面窗口不可用')
+  if (!mainWindow) throw new Error('Desktop window is unavailable')
   const sourcePath = selectedFiles.get(String(payload.imageId || ''))
-  if (!sourcePath) throw new Error('图片授权已失效，请重新选择')
+  if (!sourcePath) throw new Error('Image access expired. Choose the image again.')
   const draftRoot = path.join(app.getPath('userData'), 'psd-drafts')
   await mkdir(draftRoot, { recursive: true })
   const draft = await preparePsdDraft({
@@ -580,21 +580,21 @@ async function processPsd(
   }
 ) {
   assertTrustedSender(event)
-  if (!mainWindow) throw new Error('桌面窗口不可用')
+  if (!mainWindow) throw new Error('Desktop window is unavailable')
   const sourcePath = selectedFiles.get(String(payload.imageId || ''))
-  if (!sourcePath) throw new Error('图片授权已失效，请重新选择')
+  if (!sourcePath) throw new Error('Image access expired. Choose the image again.')
   const sourceStat = await stat(sourcePath)
-  if (!sourceStat.isFile()) throw new Error('原图片已被移动或删除')
+  if (!sourceStat.isFile()) throw new Error('The original image was moved or deleted')
   const settings = await readSettings()
   await mkdir(settings.outputDirectory, { recursive: true })
   let outputPath = await uniquePsdPath(settings.outputDirectory, path.basename(sourcePath))
   if (!payload.autoExport) {
     const chosen = await dialog.showSaveDialog(mainWindow, {
-      title: '导出分层 PSD',
+      title: 'Export layered PSD',
       defaultPath: outputPath,
-      filters: [{ name: 'Photoshop 文档', extensions: ['psd'] }]
+      filters: [{ name: 'Photoshop documents', extensions: ['psd'] }]
     })
-    if (chosen.canceled || !chosen.filePath) throw new Error('已取消导出')
+    if (chosen.canceled || !chosen.filePath) throw new Error('Export cancelled')
     outputPath = chosen.filePath.toLowerCase().endsWith('.psd') ? chosen.filePath : `${chosen.filePath}.psd`
   }
 
@@ -641,7 +641,7 @@ async function processPsd(
 async function readSelectedImage(event: IpcMainInvokeEvent, id: string): Promise<{ name: string; type: string; bytes: Uint8Array }> {
   assertTrustedSender(event)
   const filePath = selectedFiles.get(String(id || ''))
-  if (!filePath) throw new Error('图片授权已失效，请重新选择')
+  if (!filePath) throw new Error('Image access expired. Choose the image again.')
   const bytes = await readFile(filePath)
   // 返回拷贝后的 Uint8Array，避免 Node Buffer 底层 ArrayBuffer 池化污染
   return {
@@ -658,7 +658,7 @@ async function cacheLocalCropSceneHandler(
   assertTrustedSender(event)
   const taskId = Number(payload.taskId || 0)
   const sourcePath = selectedFiles.get(String(payload.imageId || ''))
-  if (!taskId || !sourcePath) throw new Error('局部裁切场景图授权已失效')
+  if (!taskId || !sourcePath) throw new Error('Local crop scene access expired')
   const cacheDirectory = path.join(app.getPath('userData'), 'local-crop-scenes')
   const scenePath = await cacheLocalCropScene(sourcePath, cacheDirectory, taskId)
   localCropSceneByTask.set(taskId, scenePath)
@@ -674,7 +674,7 @@ async function readLocalCropPreview(
   const settings = await readSettings()
   const outputRoot = path.resolve(settings.outputDirectory)
   const underOutput = resolved.startsWith(`${outputRoot}${path.sep}`) && path.basename(resolved).startsWith('local-crop-')
-  if (!generatedLocalCropFiles.has(resolved) && !underOutput) throw new Error('拒绝读取未授权文件')
+  if (!generatedLocalCropFiles.has(resolved) && !underOutput) throw new Error('Reading an unauthorized file is not allowed')
   const bytes = await readFile(resolved)
   return { previewDataUrl: `data:image/png;base64,${bytes.toString('base64')}` }
 }
@@ -687,7 +687,7 @@ async function readSavedResultPreview(
   const resolved = path.resolve(String(filePath || ''))
   const settings = await readSettings()
   const outputRoot = path.resolve(settings.outputDirectory)
-  if (!resolved.startsWith(`${outputRoot}${path.sep}`)) throw new Error('拒绝读取未授权文件')
+  if (!resolved.startsWith(`${outputRoot}${path.sep}`)) throw new Error('Reading an unauthorized file is not allowed')
   const bytes = await sharp(resolved, { limitInputPixels: 80_000_000 })
     .resize({ width: 1200, withoutEnlargement: true })
     .png()
@@ -759,28 +759,28 @@ async function compositeLocalCropHandler(
 ): Promise<{ path: string; previewDataUrl: string; width: number; height: number; size: number }> {
   assertTrustedSender(event)
   const taskId = Number(payload.taskId || 0)
-  if (!taskId) throw new Error('任务 ID 无效')
+  if (!taskId) throw new Error('Invalid task ID')
   const scenePath =
     String(payload.scenePath || '') ||
     localCropSceneByTask.get(taskId) ||
     selectedFiles.get(String(payload.sceneImageId || '')) ||
     ''
-  if (!scenePath) throw new Error('场景图缓存已失效，无法回贴合成')
+  if (!scenePath) throw new Error('Scene cache expired; unable to reattach the composite')
   let patchBytes: Buffer
   if (payload.patchPath) {
     const patchPath = path.resolve(String(payload.patchPath))
     const settings = await readSettings()
     const outputRoot = path.resolve(settings.outputDirectory)
-    if (!patchPath.startsWith(`${outputRoot}${path.sep}`)) throw new Error('拒绝读取未授权结果图')
+    if (!patchPath.startsWith(`${outputRoot}${path.sep}`)) throw new Error('Reading an unauthorized result image is not allowed')
     patchBytes = await readFile(patchPath)
   } else {
     const remoteUrl = new URL(String(payload.patchUrl || ''))
-    if (!['http:', 'https:'].includes(remoteUrl.protocol)) throw new Error('只允许合成 http(s) 结果图')
+    if (!['http:', 'https:'].includes(remoteUrl.protocol)) throw new Error('Only http(s) result images can be composited')
     const response = await fetchProviderUrl(remoteUrl)
-    if (!response.ok) throw new Error(`拉取生成图失败：HTTP ${response.status}`)
+    if (!response.ok) throw new Error(`Unable to fetch the generated image: HTTP ${response.status}`)
     patchBytes = Buffer.from(await response.arrayBuffer())
   }
-  if (!patchBytes.length) throw new Error('生成图为空')
+  if (!patchBytes.length) throw new Error('The generated image is empty')
   const settings = await readSettings()
   // IPC 可能带着 Vue Proxy 序列化后的普通对象；这里再拷一次，避免脏字段进 sharp
   const maskPaths = Array.isArray(payload.maskPaths)
@@ -815,13 +815,13 @@ async function downloadResult(
 ): Promise<{ path: string; sha256: string; size: number }> {
   assertTrustedSender(event)
   const remoteUrl = new URL(String(payload.url || ''))
-  if (!['http:', 'https:'].includes(remoteUrl.protocol)) throw new Error('只允许下载 http(s) 结果')
+  if (!['http:', 'https:'].includes(remoteUrl.protocol)) throw new Error('Only http(s) results can be downloaded')
   const settings = await readSettings()
   await mkdir(settings.outputDirectory, { recursive: true })
   const response = await fetchProviderUrl(remoteUrl)
-  if (!response.ok) throw new Error(`下载失败：HTTP ${response.status}`)
+  if (!response.ok) throw new Error(`Download failed: HTTP ${response.status}`)
   const bytes = Buffer.from(await response.arrayBuffer())
-  if (!bytes.length) throw new Error('下载结果为空')
+  if (!bytes.length) throw new Error('The downloaded result is empty')
   const extension = extensionFor(response.headers.get('content-type') || '', remoteUrl.toString())
   const baseName = `task-${safeFilePart(String(payload.taskId || Date.now()))}-${Math.max(1, Number(payload.index || 0) + 1)}`
   const destination = await uniqueDestination(settings.outputDirectory, baseName, extension)
@@ -869,10 +869,10 @@ async function writeWorkspaceFile(
   const extension = WORKSPACE_WRITE_EXTENSIONS.has(requestedExt)
     ? (requestedExt === '.jpeg' ? '.jpg' : requestedExt)
     : ''
-  if (!extension) throw new Error('仅支持写入 webm / mp4 / png / jpg / webp / gif')
+  if (!extension) throw new Error('Only webm, mp4, png, jpg, webp, and gif files are supported')
   const bytes = Buffer.from(payload.bytes || new ArrayBuffer(0))
-  if (!bytes.length) throw new Error('写入内容为空')
-  if (bytes.byteLength > 200 * 1024 * 1024) throw new Error('文件不能超过 200 MB')
+  if (!bytes.length) throw new Error('The content is empty')
+  if (bytes.byteLength > 200 * 1024 * 1024) throw new Error('Files must be smaller than 200 MB')
   const baseName = safeFilePart(path.basename(rawName, path.extname(rawName))) || 'export'
   const destination = await uniqueDestination(settings.outputDirectory, baseName, extension)
   const temporary = `${destination}.${randomUUID()}.part`
@@ -888,21 +888,21 @@ async function writeWorkspaceFile(
 async function apiRequest(event: IpcMainInvokeEvent, payload: ApiRequestPayload): Promise<{ status: number; body: unknown }> {
   assertTrustedSender(event)
   if (!payload || !['models', 'generate', 'edit'].includes(payload.operation)) {
-    throw new Error('不支持的 Images API 操作')
+    throw new Error('Unsupported Images API operation')
   }
   const settings = await readSettings()
   const baseUrl = normalizeProviderBaseUrl(settings.providerBaseUrl)
-  if (!baseUrl) throw new Error('请先在设置中填写有效的 API Base URL')
+  if (!baseUrl) throw new Error('Enter a valid API Base URL in Settings first')
   const requestUrl = providerEndpoint(baseUrl, payload.operation)
   const key = await readProviderKey()
-  if (!key) throw new Error('请先在设置中保存 API Key')
+  if (!key) throw new Error('Save an API key in Settings first')
   const method = payload.operation === 'models' ? 'GET' : 'POST'
   const headers = new Headers()
   headers.set('Authorization', `Bearer ${key}`)
   headers.set('Accept', 'application/json')
   let body: string | FormData | undefined
   if (payload.files?.length) {
-    if (payload.operation !== 'edit') throw new Error('文件只允许发送到图像编辑接口')
+    if (payload.operation !== 'edit') throw new Error('Files may only be sent to the image edit endpoint')
     const form = new FormData()
     for (const file of payload.files.slice(0, 16)) {
       const bytes = Uint8Array.from(new Uint8Array(file.bytes))
@@ -935,7 +935,7 @@ async function apiRequest(event: IpcMainInvokeEvent, payload: ApiRequestPayload)
   try {
     responseBody = text ? JSON.parse(text) : null
   } catch {
-    responseBody = { error: { message: text || `服务请求失败（HTTP ${response.status}）` } }
+    responseBody = { error: { message: text || `Provider request failed (HTTP ${response.status})` } }
   }
   return { status: response.status, body: sanitizeProviderError(responseBody) }
 }
@@ -973,16 +973,16 @@ function registerIpc(): void {
     const settings = await readSettings()
     const baseUrl = normalizeProviderBaseUrl(value?.baseUrl)
     const model = String(value?.model || '').trim().slice(0, 160)
-    if (String(value?.baseUrl || '').trim() && !baseUrl) throw new Error('API Base URL 必须是 HTTPS 或本机 HTTP 地址')
-    if (!model && baseUrl) throw new Error('请填写 Image2 模型名')
+    if (String(value?.baseUrl || '').trim() && !baseUrl) throw new Error('API Base URL must use HTTPS or localhost HTTP')
+    if (!model && baseUrl) throw new Error('Enter an Image2 model name')
     const keyInput = value?.apiKey === undefined ? undefined : String(value.apiKey || '').trim()
     if (keyInput !== undefined && keyInput && !safeStorage.isEncryptionAvailable()) {
-      throw new Error('当前系统不支持安全凭证存储，未保存 API Key')
+      throw new Error('This system does not support secure credential storage; the API key was not saved')
     }
     await persistSettings({ ...settings, providerBaseUrl: baseUrl, imageModel: model })
     if (value?.clearApiKey || keyInput === '') await clearProviderKey()
     else if (keyInput) {
-      if (!await persistProviderKey(keyInput)) throw new Error('系统无法安全保存 API Key')
+      if (!await persistProviderKey(keyInput)) throw new Error('The system could not securely save the API key')
     }
     return true
   })
@@ -991,7 +991,7 @@ function registerIpc(): void {
     const result = await apiRequest(event, { operation: 'models' })
     if (result.status < 200 || result.status >= 300) {
       const body = result.body as { error?: { message?: string }; message?: string } | null
-      throw new Error(String(body?.error?.message || body?.message || `连接失败（HTTP ${result.status}）`).slice(0, 500))
+      throw new Error(String(body?.error?.message || body?.message || `Connection failed (HTTP ${result.status})`).slice(0, 500))
     }
     return true
   })
@@ -1015,7 +1015,7 @@ function registerIpc(): void {
     if (!mainWindow) return null
     const current = await readSettings()
     const result = await dialog.showOpenDialog(mainWindow, {
-      title: '选择保存目录',
+      title: 'Choose output folder',
       defaultPath: current.outputDirectory,
       properties: ['openDirectory', 'createDirectory']
     })
@@ -1090,11 +1090,11 @@ function registerIpc(): void {
     const resolved = path.resolve(String(filePath || ''))
     if (generatedPsdFiles.has(resolved)) return resolved
     // 历史任务恢复后集合会丢：允许「输出目录内已存在的 .psd」
-    if (!resolved.toLowerCase().endsWith('.psd')) throw new Error('拒绝打开未授权文件')
+    if (!resolved.toLowerCase().endsWith('.psd')) throw new Error('Opening an unauthorized file is not allowed')
     const settings = await readSettings()
     const outDir = path.resolve(settings.outputDirectory)
     const underOutput = resolved === outDir || resolved.startsWith(outDir + path.sep)
-    if (!underOutput) throw new Error('拒绝打开未授权文件')
+    if (!underOutput) throw new Error('Opening an unauthorized file is not allowed')
     await stat(resolved)
     generatedPsdFiles.add(resolved)
     return resolved
@@ -1155,7 +1155,7 @@ function registerIpc(): void {
       const settings = await readSettings()
       const outputRoot = path.resolve(settings.outputDirectory)
       if (resolved !== outputRoot && !resolved.startsWith(outputRoot + path.sep)) {
-        throw new Error('拒绝读取工作目录以外的文件')
+      throw new Error('Reading files outside the workspace is not allowed')
       }
       await stat(resolved)
       image = nativeImage.createFromPath(resolved)
@@ -1163,9 +1163,9 @@ function registerIpc(): void {
       const base64 = dataUrl.replace(/^data:image\/[a-zA-Z0-9+.-]+;base64,/, '')
       image = nativeImage.createFromBuffer(Buffer.from(base64, 'base64'))
     } else {
-      throw new Error('缺少可复制的图片数据')
+      throw new Error('No image data to copy')
     }
-    if (image.isEmpty()) throw new Error('图片无效，无法复制到剪贴板')
+    if (image.isEmpty()) throw new Error('The image is invalid and cannot be copied to the clipboard')
     clipboard.writeImage(image)
     return true
   })
@@ -1187,7 +1187,7 @@ ipcMain.handle('desktop:open-in-photoshop', async (event, filePath: string) => {
     const settings = await readSettings()
     const outputRoot = path.resolve(settings.outputDirectory)
     if (resolved !== outputRoot && !resolved.startsWith(outputRoot + path.sep)) {
-      throw new Error('拒绝打开工作目录以外的文件')
+      throw new Error('Opening files outside the workspace is not allowed')
     }
     await stat(resolved)
     if (process.platform === 'darwin') {

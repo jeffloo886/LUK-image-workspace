@@ -9,12 +9,12 @@ export const AUTO_CROP_DELAY_MS = 600
 export const AUTO_CROP_PADDING = 0.5
 
 export const DEFAULT_LOCAL_CROP_PROMPT =
-  '编辑图1，将图1中灰色选区替换为图2的产品，保持产品形态与细节一致；若有图3、图4则为产品细节参考。替换后光影自然融合，完成后消除灰色选框，框外画面保持不变。'
+  'Edit image 1. Replace the gray selection in image 1 with the product from image 2, preserving its shape and details. If images 3 or 4 are provided, use them as product-detail references. Blend the replacement naturally, remove the gray selection box, and keep everything outside the box unchanged.'
 
 // 无论用户自己填了什么提示词，都强制追加这条约束——否则模型收到「删掉/去掉」这类指令时
 // 很容易把灰色选区之外的内容也一并改动或删除（局部裁切的卖点就是「框外内容保持不变」）。
 export const LOCAL_CROP_PRESERVE_GUARD =
-  '重要约束：只允许修改灰色标记选区内的内容，选区以外的构图、背景、文字、光影必须与原图保持完全一致，不得改动、不得重绘、不得删除选区以外的任何内容。'
+  'Important constraint: only modify the gray marked selection. The composition, background, text, and lighting outside the selection must remain exactly unchanged. Do not edit, redraw, or remove anything outside the selection.'
 
 export function withLocalCropGuard(prompt: string): string {
   const trimmed = prompt.trim() || DEFAULT_LOCAL_CROP_PROMPT
@@ -131,7 +131,7 @@ export async function loadImageElement(src: string): Promise<HTMLImageElement> {
   return new Promise((resolve, reject) => {
     const image = new Image()
     image.onload = () => resolve(image)
-    image.onerror = () => reject(new Error('场景图加载失败'))
+    image.onerror = () => reject(new Error('Failed to load the scene image'))
     image.src = src
   })
 }
@@ -148,14 +148,14 @@ export async function bakeLocalCropImage(
   canvas.width = box.size
   canvas.height = box.size
   const ctx = canvas.getContext('2d')
-  if (!ctx) throw new Error('无法创建裁切画布')
+  if (!ctx) throw new Error('Unable to create the crop canvas')
   ctx.drawImage(image, box.x, box.y, box.size, box.size, 0, 0, box.size, box.size)
   if (paths.length) {
     const mask = document.createElement('canvas')
     mask.width = box.size
     mask.height = box.size
     const maskCtx = mask.getContext('2d')
-    if (!maskCtx) throw new Error('无法创建选区画布')
+    if (!maskCtx) throw new Error('Unable to create the selection canvas')
     drawMaskPathsToCanvas(maskCtx, paths, { offsetX: box.x, offsetY: box.y, alpha: 1 })
     ctx.save()
     ctx.globalAlpha = clamp(maskOpacityPercent / 100, 0.05, 1)
@@ -164,7 +164,7 @@ export async function bakeLocalCropImage(
   }
   return new Promise((resolve, reject) => {
     canvas.toBlob((blob) => {
-      if (!blob) reject(new Error('裁切图导出失败'))
+      if (!blob) reject(new Error('Failed to export the crop'))
       else resolve(blob)
     }, 'image/png')
   })

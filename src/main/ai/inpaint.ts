@@ -142,7 +142,7 @@ export async function inpaintImage(input: {
       .toBuffer()
     const plane = inputSize * inputSize
     if (resizedImage.length !== plane * 3 || resizedMask.length !== plane) {
-      throw new Error(`修复输入通道异常：image=${resizedImage.length} mask=${resizedMask.length}`)
+      throw new Error(`Inpaint input channel mismatch: image=${resizedImage.length} mask=${resizedMask.length}`)
     }
     const imageTensor = new Float32Array(3 * plane)
     for (let channel = 0; channel < 3; channel += 1) {
@@ -178,7 +178,7 @@ export async function inpaintImage(input: {
       .raw()
       .toBuffer()
     if (restored.length !== boxWidth * boxHeight * 3 || feather.length !== boxWidth * boxHeight) {
-      throw new Error(`修复输出通道异常：restored=${restored.length} feather=${feather.length}`)
+      throw new Error(`Inpaint output channel mismatch: restored=${restored.length} feather=${feather.length}`)
     }
     for (let y = 0; y < boxHeight; y += 1) {
       for (let x = 0; x < boxWidth; x += 1) {

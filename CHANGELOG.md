@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.3.1 — 2026-08-08
+
+### Fixed
+
+- Unified all user-facing app copy, native dialogs, progress messages, PSD layer names, and update states in English.
+- Fixed arm64 DMG packaging so the application bundle is mounted at the DMG root instead of being nested inside another `.app` bundle.
+
 ## 0.3.0 — 2026-08-08
 
 ### Added

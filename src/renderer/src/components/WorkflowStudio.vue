@@ -69,7 +69,7 @@ const quality = ref(props.defaultQuality)
 const resolution = ref(props.defaultResolution)
 const productName = ref('')
 const sellingPoints = ref('')
-const sharedPrompt = ref('保持商品主体准确，画面可直接用于商业投放。')
+const sharedPrompt = ref('Keep the product accurate and make the image ready for commercial use.')
 const skuAttributes = ref('')
 const detailProduct = ref<DesktopSelectedImage | null>(null)
 const detailStyleSlots = ref<Array<DesktopSelectedImage | null>>(Array.from({ length: DETAIL_STYLE_SLOT_COUNT }, () => null))
@@ -127,7 +127,7 @@ const selectionCount = computed(() => {
   return 0
 })
 
-const selectedProviderLabel = computed(() => activeProvider.value?.label || '线路')
+const selectedProviderLabel = computed(() => activeProvider.value?.label || 'Provider')
 const selectedSizeLabel = computed(() => activeProvider.value?.sizeOptions.find((item) => item.value === size.value)?.label || size.value)
 const selectedQualityLabel = computed(() => activeProvider.value?.qualityOptions.find((item) => item.value === quality.value)?.label || quality.value)
 const currentResolutionOptions = computed(() => activeProvider.value?.resolutionOptions || [])
@@ -301,7 +301,7 @@ function handleNativeVoiceEvent(value: { type: string; text?: string; message?: 
     voiceFailed = true
     isVoiceListening.value = false
     isVoiceRecognizing.value = false
-    voiceStatus.value = value.message || '语音识别失败'
+    voiceStatus.value = value.message || 'Voice recognition failed'
     clearVoiceStatusLater(voiceStatus.value)
     return
   }
@@ -313,9 +313,9 @@ function handleNativeVoiceEvent(value: { type: string; text?: string; message?: 
       const text = (voiceFinalText || voiceInterimText).trim()
       if (text) {
         appendRecognizedText(text)
-        voiceStatus.value = '已填入语音内容'
+        voiceStatus.value = 'Voice text added'
       } else {
-        voiceStatus.value = '没有听清，请再试一次'
+        voiceStatus.value = 'No speech was recognized. Please try again.'
       }
       clearVoiceStatusLater(voiceStatus.value)
     }
@@ -330,7 +330,7 @@ async function toggleVoiceInput(): Promise<void> {
   if (isVoiceListening.value) {
     if (nativeVoiceActive) {
       isVoiceRecognizing.value = true
-      voiceStatus.value = '正在识别…'
+      voiceStatus.value = 'Recognizing…'
       try {
         await window.desktop?.voiceStop()
       } catch {
@@ -347,7 +347,7 @@ async function toggleVoiceInput(): Promise<void> {
   try {
     const granted = await window.desktop?.requestMicrophoneAccess()
     if (granted === false) {
-      voiceStatus.value = '需要麦克风权限才能语音输入'
+      voiceStatus.value = 'Microphone permission is required for voice input'
       clearVoiceStatusLater(voiceStatus.value)
       return
     }
@@ -355,13 +355,13 @@ async function toggleVoiceInput(): Promise<void> {
     nativeVoiceOff = window.desktop?.onVoiceEvent?.(handleNativeVoiceEvent) || null
     nativeVoiceActive = true
     isVoiceListening.value = true
-    voiceStatus.value = '正在听，你可以开始说话…'
+    voiceStatus.value = 'Listening. You can start speaking…'
     await window.desktop?.voiceStart()
   } catch (error) {
     nativeVoiceActive = false
     isVoiceListening.value = false
     isVoiceRecognizing.value = false
-    voiceStatus.value = error instanceof Error ? error.message : '无法启动语音输入'
+    voiceStatus.value = error instanceof Error ? error.message : 'Unable to start voice input'
     clearVoiceStatusLater(voiceStatus.value)
   }
 }
@@ -381,11 +381,11 @@ onBeforeUnmount(() => {
 async function chooseDetailProduct(): Promise<void> {
   pickerError.value = ''
   try {
-    const selected = await window.desktop?.selectWorkflowImages({ limit: 1, title: '选择商品主图' }) || []
+    const selected = await window.desktop?.selectWorkflowImages({ limit: 1, title: 'Choose product hero image' }) || []
     if (!selected[0]) return
     detailProduct.value = selected[0]
   } catch (error) {
-    pickerError.value = error instanceof Error ? error.message : '选择商品主图失败'
+    pickerError.value = error instanceof Error ? error.message : 'Failed to choose the product hero image'
   }
 }
 
@@ -394,7 +394,7 @@ async function pasteDetailProduct(): Promise<void> {
   try {
     detailProduct.value = await importFromClipboard()
   } catch (error) {
-    pickerError.value = error instanceof Error ? error.message : '粘贴商品主图失败'
+    pickerError.value = error instanceof Error ? error.message : 'Failed to paste the product hero image'
   }
 }
 
@@ -405,13 +405,13 @@ function removeDetailProduct(): void {
 async function chooseDetailStyleAt(slot: number): Promise<void> {
   pickerError.value = ''
   try {
-    const selected = await window.desktop?.selectWorkflowImages({ limit: 1, title: '选择风格参考图' }) || []
+    const selected = await window.desktop?.selectWorkflowImages({ limit: 1, title: 'Choose style reference image' }) || []
     if (!selected[0]) return
     const next = detailStyleSlots.value.slice()
     next[slot] = selected[0]
     detailStyleSlots.value = next
   } catch (error) {
-    pickerError.value = error instanceof Error ? error.message : '选择风格参考失败'
+    pickerError.value = error instanceof Error ? error.message : 'Failed to choose the style reference'
   }
 }
 
@@ -423,7 +423,7 @@ async function pasteDetailStyleAt(slot: number): Promise<void> {
     next[slot] = image
     detailStyleSlots.value = next
   } catch (error) {
-    pickerError.value = error instanceof Error ? error.message : '粘贴风格参考失败'
+    pickerError.value = error instanceof Error ? error.message : 'Failed to paste the style reference'
   }
 }
 
@@ -447,10 +447,10 @@ function fillRefSlotsFrom(startIndex: number, images: DesktopSelectedImage[]): v
 
 async function importFromClipboard(): Promise<DesktopSelectedImage> {
   if (!window.desktop?.readClipboardImage || !window.desktop?.importPsdImage) {
-    throw new Error('当前环境不支持从剪切板粘贴图片')
+    throw new Error('Pasting images from the clipboard is not supported here')
   }
   const clip = await window.desktop.readClipboardImage()
-  if (!clip) throw new Error('剪切板里没有图片，请先复制一张图')
+  if (!clip) throw new Error('No image is in the clipboard. Copy an image first.')
   return window.desktop.importPsdImage(clip)
 }
 
@@ -459,7 +459,7 @@ async function chooseRefAt(slot: number): Promise<void> {
   try {
     const filled = replicationRefSlots.value[slot]
     if (filled) {
-      const selected = await window.desktop?.selectWorkflowImages({ limit: 1, title: '更换复刻参考图' }) || []
+      const selected = await window.desktop?.selectWorkflowImages({ limit: 1, title: 'Replace remake reference image' }) || []
       if (!selected[0]) return
       const next = replicationRefSlots.value.slice()
       next[slot] = selected[0]
@@ -468,17 +468,17 @@ async function chooseRefAt(slot: number): Promise<void> {
     }
     const remaining = replicationEmptyCount.value
     if (remaining <= 0) {
-      pickerError.value = '复刻参考图已满 20 张'
+      pickerError.value = 'The 20 remake reference slots are full'
       return
     }
     const selected = await window.desktop?.selectWorkflowImages({
       limit: remaining,
-      title: '选择复刻参考图（可多选）'
+      title: 'Choose remake reference images (multiple selection allowed)'
     }) || []
     if (!selected.length) return
     fillRefSlotsFrom(slot, selected)
   } catch (error) {
-    pickerError.value = error instanceof Error ? error.message : '选择参考图失败'
+    pickerError.value = error instanceof Error ? error.message : 'Failed to choose reference images'
   }
 }
 
@@ -490,7 +490,7 @@ async function pasteRefAt(slot: number): Promise<void> {
     next[slot] = image
     replicationRefSlots.value = next
   } catch (error) {
-    pickerError.value = error instanceof Error ? error.message : '粘贴参考图失败'
+    pickerError.value = error instanceof Error ? error.message : 'Failed to paste the reference image'
   }
 }
 
@@ -503,13 +503,13 @@ function removeRefAt(slot: number): void {
 async function chooseProductAt(slot: number): Promise<void> {
   pickerError.value = ''
   try {
-    const selected = await window.desktop?.selectWorkflowImages({ limit: 1, title: '选择商品图' }) || []
+    const selected = await window.desktop?.selectWorkflowImages({ limit: 1, title: 'Choose product image' }) || []
     if (!selected[0]) return
     const next = replicationProductSlots.value.slice()
     next[slot] = selected[0]
     replicationProductSlots.value = next
   } catch (error) {
-    pickerError.value = error instanceof Error ? error.message : '选择商品图失败'
+    pickerError.value = error instanceof Error ? error.message : 'Failed to choose the product image'
   }
 }
 
@@ -521,7 +521,7 @@ async function pasteProductAt(slot: number): Promise<void> {
     next[slot] = image
     replicationProductSlots.value = next
   } catch (error) {
-    pickerError.value = error instanceof Error ? error.message : '粘贴商品图失败'
+    pickerError.value = error instanceof Error ? error.message : 'Failed to paste the product image'
   }
 }
 
@@ -535,7 +535,7 @@ function removeProductAt(slot: number): void {
 async function addRefsFromComposer(): Promise<void> {
   const start = replicationRefSlots.value.findIndex((item) => item == null)
   if (start < 0) {
-    pickerError.value = '复刻参考图已满 20 张'
+    pickerError.value = 'The 20 remake reference slots are full'
     return
   }
   await chooseRefAt(start)
@@ -557,7 +557,7 @@ async function chooseSkuAt(slot: number): Promise<void> {
   pickerError.value = ''
   try {
     if (skuProductSlots.value[slot]) {
-      const selected = await window.desktop?.selectWorkflowImages({ limit: 1, title: '更换 SKU 商品图' }) || []
+      const selected = await window.desktop?.selectWorkflowImages({ limit: 1, title: 'Replace SKU product image' }) || []
       if (!selected[0]) return
       const next = skuProductSlots.value.slice()
       next[slot] = selected[0]
@@ -565,17 +565,17 @@ async function chooseSkuAt(slot: number): Promise<void> {
       return
     }
     if (skuEmptyCount.value <= 0) {
-      pickerError.value = 'SKU 商品图已满 20 张'
+      pickerError.value = 'The 20 SKU product slots are full'
       return
     }
     const selected = await window.desktop?.selectWorkflowImages({
       limit: skuEmptyCount.value,
-      title: '选择 SKU 商品图（可多选）'
+      title: 'Choose SKU product images (multiple selection allowed)'
     }) || []
     if (!selected.length) return
     fillSkuSlotsFrom(slot, selected)
   } catch (error) {
-    pickerError.value = error instanceof Error ? error.message : '选择 SKU 商品图失败'
+    pickerError.value = error instanceof Error ? error.message : 'Failed to choose SKU product images'
   }
 }
 
@@ -587,7 +587,7 @@ async function pasteSkuAt(slot: number): Promise<void> {
     next[slot] = image
     skuProductSlots.value = next
   } catch (error) {
-    pickerError.value = error instanceof Error ? error.message : '粘贴 SKU 商品图失败'
+    pickerError.value = error instanceof Error ? error.message : 'Failed to paste the SKU product image'
   }
 }
 
@@ -600,11 +600,11 @@ function removeSkuAt(slot: number): void {
 async function chooseSkuTemplate(): Promise<void> {
   pickerError.value = ''
   try {
-    const selected = await window.desktop?.selectWorkflowImages({ limit: 1, title: '选择统一模板图' }) || []
+    const selected = await window.desktop?.selectWorkflowImages({ limit: 1, title: 'Choose shared template image' }) || []
     if (!selected[0]) return
     skuTemplate.value = selected[0]
   } catch (error) {
-    pickerError.value = error instanceof Error ? error.message : '选择模板图失败'
+    pickerError.value = error instanceof Error ? error.message : 'Failed to choose the template image'
   }
 }
 
@@ -613,7 +613,7 @@ async function pasteSkuTemplate(): Promise<void> {
   try {
     skuTemplate.value = await importFromClipboard()
   } catch (error) {
-    pickerError.value = error instanceof Error ? error.message : '粘贴模板图失败'
+    pickerError.value = error instanceof Error ? error.message : 'Failed to paste the template image'
   }
 }
 
@@ -624,7 +624,7 @@ function removeSkuTemplate(): void {
 async function addSkuFromComposer(): Promise<void> {
   const start = skuProductSlots.value.findIndex((item) => item == null)
   if (start < 0) {
-    pickerError.value = 'SKU 商品图已满 20 张'
+    pickerError.value = 'The 20 SKU product slots are full'
     return
   }
   await chooseSkuAt(start)
@@ -632,28 +632,28 @@ async function addSkuFromComposer(): Promise<void> {
 
 async function optimizeSellingPoints(): Promise<void> {
   pickerError.value = ''
-  const raw = [productName.value.trim() && `商品：${productName.value.trim()}`, sellingPoints.value.trim() || '高端质感、核心功效、专业可信']
+  const raw = [productName.value.trim() && `Product: ${productName.value.trim()}`, sellingPoints.value.trim() || 'Premium feel, core benefits, and credible presentation']
     .filter(Boolean)
     .join('\n')
   if (!raw.trim()) {
-    pickerError.value = '请先填写商品名称或核心卖点'
+    pickerError.value = 'Add a product name or key selling points first'
     return
   }
   if (optimizingPoints.value) return
   optimizingPoints.value = true
   try {
     const seed = [
-      '请把以下商品信息优化成适合电商详情页的「核心卖点」短文案：',
-      '要求：中文、具体可感知、3～6 个要点或一段连贯卖点，不要标题编号堆砌，不要虚假医疗承诺，直接输出卖点正文。',
+      'Rewrite the following product information as concise key selling points for an e-commerce detail page.',
+      'Use concrete, observable language with 3–6 points or one coherent paragraph. Do not invent medical claims or add headings and numbering. Output only the selling-point copy.',
       '',
       raw
     ].join('\n')
     const res = await api.rewritePrompt(seed)
     const content = String(res?.content || '').trim()
-    if (!content) throw new Error('优化结果为空')
+    if (!content) throw new Error('The rewrite returned no content')
     sellingPoints.value = content.slice(0, 400)
   } catch (error) {
-    pickerError.value = error instanceof Error ? error.message : '优化失败，请稍后再试'
+    pickerError.value = error instanceof Error ? error.message : 'Rewrite failed. Please try again later.'
   } finally {
     optimizingPoints.value = false
   }
@@ -662,20 +662,20 @@ async function optimizeSellingPoints(): Promise<void> {
 function buildDetailPlans(): void {
   pickerError.value = ''
   if (!detailProduct.value) {
-    pickerError.value = '请先选择一张商品主图'
+    pickerError.value = 'Choose a hero product image first'
     return
   }
-  const product = productName.value.trim() || '图中商品'
-  const points = sellingPoints.value.trim() || '突出产品质感、核心功效与专业可信度'
+  const product = productName.value.trim() || 'the product in the hero image'
+  const points = sellingPoints.value.trim() || 'premium feel, core benefits, and credible presentation'
   const templates = [
-    ['首屏主视觉', `为${product}设计高端详情页首屏主视觉，${points}，主体居中，留出清晰标题区。`],
-    ['核心卖点', `为${product}设计核心卖点场景，视觉化表达：${points}，信息层级清晰。`],
-    ['成分科技', `为${product}设计成分与机理说明画面，真实商业摄影质感，避免虚构文字。`],
-    ['使用场景', `展示${product}真实使用场景与适用时刻，氛围自然，高级且可信。`],
-    ['质地细节', `用微距与材质光泽展示${product}质地细节，背景干净，强调细腻和品质。`],
-    ['功效证据', `为${product}设计功效证据页，使用克制的对比构图和留白，避免夸大承诺。`],
-    ['使用方法', `设计${product}三步使用方法视觉，动作顺序明确，主体与包装保持准确。`],
-    ['收尾转化', `为${product}设计详情页收尾转化画面，回扣${points}，高级留白，适合放购买信息。`]
+    ['Hero visual', `Design a premium detail-page hero visual for ${product}. Highlight ${points}; center the product and leave a clear area for a headline.`],
+    ['Key benefits', `Create a key-benefit scene for ${product} that visualizes ${points} with a clear information hierarchy.`],
+    ['Ingredients & technology', `Create a credible ingredients-and-technology visual for ${product} with a realistic commercial photography feel and no invented copy.`],
+    ['Usage scene', `Show ${product} in a natural, elevated, credible usage moment and context.`],
+    ['Texture detail', `Use macro framing and material highlights to show the texture of ${product}; keep the background clean and emphasize refinement.`],
+    ['Evidence', `Create a restrained proof visual for ${product} using comparison, composition, and whitespace without exaggerated promises.`],
+    ['How to use', `Design a clear three-step usage visual for ${product}; preserve the product and packaging accurately.`],
+    ['Conversion close', `Create a premium detail-page closing visual for ${product}, returning to ${points} and leaving space for purchase information.`]
   ]
   plans.value = templates.map(([title, prompt]) => ({ title, prompt, enabled: true }))
   void nextTick(() => document.querySelector('.detail-panel .plan-list')?.scrollIntoView({ behavior: 'smooth', block: 'nearest' }))
@@ -697,14 +697,14 @@ function submitWorkflow(): void {
   pickerError.value = ''
   let items: WorkflowItem[] = []
   if (props.kind === 'detailV4') {
-    if (!detailProduct.value || !plans.value.length) return void (pickerError.value = '请先生成并确认场景方案')
+    if (!detailProduct.value || !plans.value.length) return void (pickerError.value = 'Generate and confirm scene plans first')
     const styles = filledDetailStyles.value
     const extra = detailExtra.value.trim()
     items = plans.value.filter((item) => item.enabled && item.prompt.trim()).map((item) => ({
       prompt: [
         item.prompt.trim(),
         extra,
-        '商品主体必须与主图一致，禁止替换成其他产品。'
+        'The product must match the hero image. Do not replace it with another product.'
       ].filter(Boolean).join('\n'),
       // 主图优先，风格参考随后
       sources: [detailProduct.value!, ...styles].slice(0, 4)
@@ -713,11 +713,11 @@ function submitWorkflow(): void {
   if (props.kind === 'replication') {
     const refs = filledReplicationRefs.value
     const products = filledReplicationProducts.value
-    if (!refs.length) return void (pickerError.value = '请先选择至少一张复刻参考图')
+    if (!refs.length) return void (pickerError.value = 'Choose at least one remake reference image first')
     items = refs.map((image, index) => ({
       prompt: [
-        `复刻第 ${index + 1} 张参考图的构图、镜头、光线和整体视觉风格。`,
-        products.length ? '商品主体以附加的商品参考图为准，保持包装与外形准确。' : '保持商品主体准确。',
+        `Recreate the composition, camera, lighting, and overall visual language of reference image ${index + 1}.`,
+        products.length ? 'Use the attached product references for the subject; preserve the packaging and shape.' : 'Keep the product subject accurate.',
         sharedPrompt.value.trim()
       ].filter(Boolean).join(' '),
       // 参考图在前（构图母版），商品图随后
@@ -725,7 +725,7 @@ function submitWorkflow(): void {
     }))
   }
   if (props.kind === 'batchSku') {
-    if (!skuTemplate.value) return void (pickerError.value = '请选择统一模板图')
+    if (!skuTemplate.value) return void (pickerError.value = 'Choose a shared template image')
     // 按槽位顺序（不是压缩后的 index），属性第 N 行对应第 N 个槽
     const attributeLines = skuAttributes.value.split(/\r?\n/)
     const paired: WorkflowItem[] = []
@@ -734,19 +734,19 @@ function submitWorkflow(): void {
       const attr = String(attributeLines[slot] || '').trim()
       paired.push({
         prompt: [
-          '严格沿用模板图的版式、构图、背景和光线，仅替换商品主体。',
-          `这是第 ${slot + 1} 个 SKU。`,
-          attr ? `该 SKU 属性：${attr}。` : '',
+          'Follow the template layout, composition, background, and lighting exactly; replace only the product subject.',
+          `This is SKU ${slot + 1}.`,
+          attr ? `SKU attributes: ${attr}.` : '',
           sharedPrompt.value.trim()
         ].filter(Boolean).join(' '),
         // 模板在前强化版式参考，商品图紧随其后用于主体替换
         sources: [skuTemplate.value!, image].slice(0, 4)
       })
     })
-    if (!paired.length) return void (pickerError.value = '请至少选择一张 SKU 商品图')
+    if (!paired.length) return void (pickerError.value = 'Choose at least one SKU product image')
     items = paired
   }
-  if (!items.length) return void (pickerError.value = '没有可提交的任务')
+  if (!items.length) return void (pickerError.value = 'There are no tasks to submit')
   emit('submit', commonSubmission(items))
 }
 
@@ -786,8 +786,8 @@ function onLocalCropBeginFailed(message: string): void {
       <div class="ref-scroll replication-ref-scroll">
         <div class="slot-block">
           <div class="section-title">
-            <strong>复刻参考图</strong>
-            <span>{{ replicationFilledCount }}/20 · 点空槽可多选，每张独立成任务</span>
+            <strong>Remake references</strong>
+            <span>{{ replicationFilledCount }}/20 · Select multiple images; each becomes a local task</span>
           </div>
           <div class="ref-slots replication-ref-slots">
             <div
@@ -796,7 +796,7 @@ function onLocalCropBeginFailed(message: string): void {
               class="image-slot"
               role="button"
               tabindex="0"
-              :aria-label="image ? `更换复刻参考图 ${slot + 1}` : `添加复刻参考图 ${slot + 1}`"
+              :aria-label="image ? `Replace remake reference ${slot + 1}` : `Add remake reference ${slot + 1}`"
               @click="chooseRefAt(slot)"
               @keydown.enter.prevent="chooseRefAt(slot)"
               @keydown.space.prevent="chooseRefAt(slot)"
@@ -804,10 +804,10 @@ function onLocalCropBeginFailed(message: string): void {
               <template v-if="image">
                 <img :src="image.previewDataUrl" :alt="image.name" />
                 <span class="slot-index">{{ slot + 1 }}</span>
-                <span class="remove" role="button" aria-label="移除" @click.stop="removeRefAt(slot)"><X :size="11" /></span>
+                <span class="remove" role="button" aria-label="Remove" @click.stop="removeRefAt(slot)"><X :size="11" /></span>
                 <button class="paste-action on-image" type="button" @click.stop="pasteRefAt(slot)">
                   <ClipboardPaste :size="11" />
-                  粘贴
+                  Paste
                 </button>
               </template>
               <template v-else>
@@ -815,7 +815,7 @@ function onLocalCropBeginFailed(message: string): void {
                 <span class="slot-label">{{ slot + 1 }}</span>
                 <button class="paste-action compact" type="button" @click.stop="pasteRefAt(slot)">
                   <ClipboardPaste :size="11" />
-                  粘贴
+                  Paste
                 </button>
               </template>
             </div>
@@ -826,8 +826,8 @@ function onLocalCropBeginFailed(message: string): void {
       <!-- 对应 product-slots：flex:none，贴在 composer 正上方 -->
       <div class="slot-block product-block">
         <div class="section-title">
-          <strong>商品图（可选）</strong>
-          <span>最多 3 张，会与每张参考图组合</span>
+            <strong>Product references (optional)</strong>
+            <span>Up to 3 images, combined with every remake reference</span>
         </div>
         <div class="product-slots">
           <div
@@ -836,25 +836,25 @@ function onLocalCropBeginFailed(message: string): void {
             class="image-slot product"
             role="button"
             tabindex="0"
-            :aria-label="image ? `更换商品图 ${slot + 1}` : `添加商品图 ${slot + 1}`"
+            :aria-label="image ? `Replace product reference ${slot + 1}` : `Add product reference ${slot + 1}`"
             @click="chooseProductAt(slot)"
             @keydown.enter.prevent="chooseProductAt(slot)"
             @keydown.space.prevent="chooseProductAt(slot)"
           >
             <template v-if="image">
               <img :src="image.previewDataUrl" :alt="image.name" />
-              <span class="remove" role="button" aria-label="移除" @click.stop="removeProductAt(slot)"><X :size="11" /></span>
+              <span class="remove" role="button" aria-label="Remove" @click.stop="removeProductAt(slot)"><X :size="11" /></span>
               <button class="paste-action on-image" type="button" @click.stop="pasteProductAt(slot)">
                 <ClipboardPaste :size="11" />
-                粘贴
+                Paste
               </button>
             </template>
             <template v-else>
               <Plus :size="16" />
-              <span class="slot-label">商品图</span>
+              <span class="slot-label">Product</span>
               <button class="paste-action compact" type="button" @click.stop="pasteProductAt(slot)">
                 <ClipboardPaste :size="11" />
-                粘贴
+                Paste
               </button>
             </template>
           </div>
@@ -871,26 +871,26 @@ function onLocalCropBeginFailed(message: string): void {
             v-model="sharedPrompt"
             rows="2"
             maxlength="2000"
-            placeholder="统一要求：保留构图与光线，替换商品主体，删除原图文字…"
+            placeholder="Shared direction: preserve composition and lighting, replace the product, and remove original text…"
             @keydown.meta.enter="submitWorkflow"
             @keydown.ctrl.enter="submitWorkflow"
           />
         </div>
 
         <div class="composer-bottom">
-          <button class="icon-round" type="button" title="添加复刻参考图" @click="addRefsFromComposer">
+          <button class="icon-round" type="button" title="Add remake reference" @click="addRefsFromComposer">
             <Plus :size="16" />
           </button>
 
           <div class="composer-params">
             <div class="pop-wrap">
-              <button :class="['param-btn', { open: openPopover === 'provider' }]" type="button" aria-label="生成线路" @click="togglePopover('provider')">
+              <button :class="['param-btn', { open: openPopover === 'provider' }]" type="button" aria-label="Generation provider" @click="togglePopover('provider')">
                 {{ selectedProviderLabel }}
                 <ChevronDown :size="12" />
               </button>
               <Transition name="pop">
                 <div v-if="openPopover === 'provider'" class="menu-pop param-menu scrollable" role="menu">
-                  <span class="menu-title">线路</span>
+                  <span class="menu-title">Provider</span>
                   <button
                     v-for="provider in providers"
                     :key="provider.id"
@@ -909,13 +909,13 @@ function onLocalCropBeginFailed(message: string): void {
             </div>
 
             <div class="pop-wrap">
-              <button :class="['param-btn', { open: openPopover === 'size' }]" type="button" aria-label="画面比例" @click="togglePopover('size')">
+              <button :class="['param-btn', { open: openPopover === 'size' }]" type="button" aria-label="Aspect ratio" @click="togglePopover('size')">
                 {{ selectedSizeLabel }}
                 <ChevronDown :size="12" />
               </button>
               <Transition name="pop">
                 <div v-if="openPopover === 'size'" class="menu-pop param-menu scrollable" role="menu">
-                  <span class="menu-title">画面比例</span>
+                  <span class="menu-title">Aspect ratio</span>
                   <button
                     v-for="item in activeProvider?.sizeOptions || []"
                     :key="item.value"
@@ -934,13 +934,13 @@ function onLocalCropBeginFailed(message: string): void {
             </div>
 
             <div v-if="currentQualityOptions.length > 1" class="pop-wrap">
-              <button :class="['param-btn', { open: openPopover === 'quality' }]" type="button" aria-label="质量" @click="togglePopover('quality')">
+              <button :class="['param-btn', { open: openPopover === 'quality' }]" type="button" aria-label="Quality" @click="togglePopover('quality')">
                 {{ selectedQualityLabel }}
                 <ChevronDown :size="12" />
               </button>
               <Transition name="pop">
                 <div v-if="openPopover === 'quality'" class="menu-pop param-menu" role="menu">
-                  <span class="menu-title">质量</span>
+                  <span class="menu-title">Quality</span>
                   <button
                     v-for="item in currentQualityOptions"
                     :key="item.value"
@@ -961,7 +961,7 @@ function onLocalCropBeginFailed(message: string): void {
               <button
                 :class="['param-btn', { open: openPopover === 'resolution', ultra: isMaxResolution }]"
                 type="button"
-                aria-label="分辨率"
+                aria-label="Resolution"
                 @click="togglePopover('resolution')"
               >
                 {{ resolutionLabel }}
@@ -970,18 +970,18 @@ function onLocalCropBeginFailed(message: string): void {
               <Transition name="pop">
                 <div v-if="openPopover === 'resolution'" class="menu-pop slider-pop">
                   <div class="resolution-heading">
-                    <span>分辨率</span>
+                    <span>Resolution</span>
                     <strong :class="{ ultra: isMaxResolution }">{{ resolutionLabel }}</strong>
                     <button
                       class="resolution-help"
                       type="button"
-                      title="更高分辨率会生成更清晰的细节，同时需要更长处理时间"
-                      aria-label="分辨率说明"
+                      title="Higher resolution produces finer detail and may take longer"
+                      aria-label="Resolution details"
                     >
                       <HelpCircle :size="14" />
                     </button>
                   </div>
-                  <div class="slider-labels"><span>更快</span><span>更清晰</span></div>
+                  <div class="slider-labels"><span>Faster</span><span>Sharper</span></div>
                   <div :class="['resolution-track', { ultra: isMaxResolution }]" :style="resolutionTrackStyle">
                     <ResolutionEnergyCanvas :progress="resolutionProgress" :ultra="isMaxResolution" />
                     <input
@@ -992,7 +992,7 @@ function onLocalCropBeginFailed(message: string): void {
                       step="0.01"
                       :value="resolutionSlide"
                       :aria-valuetext="resolutionLabel"
-                      aria-label="分辨率档位"
+                      aria-label="Resolution level"
                       @input="onResolutionSlideInput"
                       @change="onResolutionSlideCommit"
                       @pointerup="onResolutionSlideCommit"
@@ -1009,8 +1009,8 @@ function onLocalCropBeginFailed(message: string): void {
             :class="['voice-btn', { listening: isVoiceListening, recognizing: isVoiceRecognizing }]"
             type="button"
             :disabled="submitting"
-            :aria-label="isVoiceListening ? '停止语音输入' : '语音输入'"
-            :title="isVoiceListening ? '停止并识别' : '语音输入提示词'"
+            :aria-label="isVoiceListening ? 'Stop voice input' : 'Voice input'"
+            :title="isVoiceListening ? 'Stop and transcribe' : 'Dictate a prompt'"
             @click="toggleVoiceInput"
           >
             <LoaderCircle v-if="isVoiceRecognizing" :size="15" class="spin" />
@@ -1023,7 +1023,7 @@ function onLocalCropBeginFailed(message: string): void {
             class="send-btn"
             type="button"
             :disabled="!canSubmitReplication"
-            :aria-label="canSubmitReplication ? `确认生成 ${selectionCount} 个任务` : '请先添加复刻参考图'"
+            :aria-label="canSubmitReplication ? `Create ${selectionCount} tasks` : 'Add a remake reference first'"
             @click="submitWorkflow"
           >
             <LoaderCircle v-if="submitting" :size="16" class="spin" />
@@ -1037,9 +1037,9 @@ function onLocalCropBeginFailed(message: string): void {
           <span v-if="pickerError" class="rep-error">{{ pickerError }}</span>
           <span v-else-if="voiceStatus" class="voice-status" role="status" aria-live="polite">{{ voiceStatus }}</span>
           <span v-else-if="selectionCount > 0">{{ selectionCount }} local requests · provider billed separately</span>
-          <span v-else>添加参考图后可提交本地队列</span>
+          <span v-else>Add a reference image to queue local tasks</span>
         </div>
-        <span>⌘ ↵ 生成</span>
+        <span>⌘ ↵ Create</span>
       </div>
     </section>
   </div>
@@ -1050,8 +1050,8 @@ function onLocalCropBeginFailed(message: string): void {
       <div class="sku-workspace">
         <div class="slot-block sku-products-block">
           <div class="section-title">
-            <strong>SKU 商品图</strong>
-            <span>{{ skuFilledCount }}/20 · 可多选</span>
+            <strong>SKU product images</strong>
+            <span>{{ skuFilledCount }}/20 · Select multiple</span>
           </div>
           <div class="ref-slots sku-ref-slots">
             <div
@@ -1060,7 +1060,7 @@ function onLocalCropBeginFailed(message: string): void {
               class="image-slot"
               role="button"
               tabindex="0"
-              :aria-label="image ? `更换 SKU 商品图 ${slot + 1}` : `添加 SKU 商品图 ${slot + 1}`"
+              :aria-label="image ? `Replace SKU product image ${slot + 1}` : `Add SKU product image ${slot + 1}`"
               @click="chooseSkuAt(slot)"
               @keydown.enter.prevent="chooseSkuAt(slot)"
               @keydown.space.prevent="chooseSkuAt(slot)"
@@ -1068,10 +1068,10 @@ function onLocalCropBeginFailed(message: string): void {
               <template v-if="image">
                 <img :src="image.previewDataUrl" :alt="image.name" />
                 <span class="slot-index">{{ slot + 1 }}</span>
-                <span class="remove" role="button" aria-label="移除" @click.stop="removeSkuAt(slot)"><X :size="11" /></span>
+                <span class="remove" role="button" aria-label="Remove" @click.stop="removeSkuAt(slot)"><X :size="11" /></span>
                 <button class="paste-action on-image" type="button" @click.stop="pasteSkuAt(slot)">
                   <ClipboardPaste :size="11" />
-                  粘贴
+                  Paste
                 </button>
               </template>
               <template v-else>
@@ -1079,7 +1079,7 @@ function onLocalCropBeginFailed(message: string): void {
                 <span class="slot-label">{{ slot + 1 }}</span>
                 <button class="paste-action compact" type="button" @click.stop="pasteSkuAt(slot)">
                   <ClipboardPaste :size="11" />
-                  粘贴
+                  Paste
                 </button>
               </template>
             </div>
@@ -1088,41 +1088,41 @@ function onLocalCropBeginFailed(message: string): void {
 
         <div class="slot-block product-block sku-template-block">
           <div class="section-title">
-            <strong>统一模板</strong>
-            <span>版式、背景与光线来源</span>
+            <strong>Shared template</strong>
+            <span>Layout, background, and lighting reference</span>
           </div>
           <div
             class="image-slot product template-slot"
             role="button"
             tabindex="0"
-            :aria-label="skuTemplate ? '更换统一模板图' : '选择统一模板图'"
+            :aria-label="skuTemplate ? 'Replace shared template' : 'Choose shared template'"
             @click="chooseSkuTemplate"
             @keydown.enter.prevent="chooseSkuTemplate"
             @keydown.space.prevent="chooseSkuTemplate"
           >
             <template v-if="skuTemplate">
               <img :src="skuTemplate.previewDataUrl" :alt="skuTemplate.name" />
-              <span class="remove" role="button" aria-label="移除" @click.stop="removeSkuTemplate"><X :size="11" /></span>
+              <span class="remove" role="button" aria-label="Remove" @click.stop="removeSkuTemplate"><X :size="11" /></span>
               <button class="paste-action on-image" type="button" @click.stop="pasteSkuTemplate">
                 <ClipboardPaste :size="11" />
-                粘贴
+                Paste
               </button>
             </template>
             <template v-else>
               <Plus :size="22" />
-              <span class="slot-label">模板图</span>
+              <span class="slot-label">Template</span>
               <button class="paste-action compact" type="button" @click.stop="pasteSkuTemplate">
                 <ClipboardPaste :size="11" />
-                粘贴
+                Paste
               </button>
             </template>
           </div>
           <label class="sku-attr-field">
-            <span>SKU 属性（每行对应一张商品图）</span>
+            <span>SKU attributes (one line per product image)</span>
             <textarea
               v-model="skuAttributes"
               rows="3"
-              placeholder="50ml / 修护型&#10;100ml / 滋润型&#10;限定礼盒 / 香槟金"
+              placeholder="50 ml / Repair&#10;100 ml / Rich&#10;Limited gift set / Champagne gold"
             />
           </label>
         </div>
@@ -1137,26 +1137,26 @@ function onLocalCropBeginFailed(message: string): void {
             v-model="sharedPrompt"
             rows="2"
             maxlength="2000"
-            placeholder="统一要求：沿用模板版式，替换商品主体，保留光线与背景…"
+            placeholder="Shared direction: follow the template layout, replace the product, and preserve lighting and background…"
             @keydown.meta.enter="submitWorkflow"
             @keydown.ctrl.enter="submitWorkflow"
           />
         </div>
 
         <div class="composer-bottom">
-          <button class="icon-round" type="button" title="添加 SKU 商品图" @click="addSkuFromComposer">
+          <button class="icon-round" type="button" title="Add SKU product image" @click="addSkuFromComposer">
             <Plus :size="16" />
           </button>
 
           <div class="composer-params">
             <div class="pop-wrap">
-              <button :class="['param-btn', { open: openPopover === 'provider' }]" type="button" aria-label="生成线路" @click="togglePopover('provider')">
+              <button :class="['param-btn', { open: openPopover === 'provider' }]" type="button" aria-label="Generation provider" @click="togglePopover('provider')">
                 {{ selectedProviderLabel }}
                 <ChevronDown :size="12" />
               </button>
               <Transition name="pop">
                 <div v-if="openPopover === 'provider'" class="menu-pop param-menu scrollable" role="menu">
-                  <span class="menu-title">线路</span>
+                  <span class="menu-title">Provider</span>
                   <button
                     v-for="provider in providers"
                     :key="provider.id"
@@ -1175,13 +1175,13 @@ function onLocalCropBeginFailed(message: string): void {
             </div>
 
             <div class="pop-wrap">
-              <button :class="['param-btn', { open: openPopover === 'size' }]" type="button" aria-label="画面比例" @click="togglePopover('size')">
+              <button :class="['param-btn', { open: openPopover === 'size' }]" type="button" aria-label="Aspect ratio" @click="togglePopover('size')">
                 {{ selectedSizeLabel }}
                 <ChevronDown :size="12" />
               </button>
               <Transition name="pop">
                 <div v-if="openPopover === 'size'" class="menu-pop param-menu scrollable" role="menu">
-                  <span class="menu-title">画面比例</span>
+                  <span class="menu-title">Aspect ratio</span>
                   <button
                     v-for="item in activeProvider?.sizeOptions || []"
                     :key="item.value"
@@ -1200,13 +1200,13 @@ function onLocalCropBeginFailed(message: string): void {
             </div>
 
             <div v-if="currentQualityOptions.length > 1" class="pop-wrap">
-              <button :class="['param-btn', { open: openPopover === 'quality' }]" type="button" aria-label="质量" @click="togglePopover('quality')">
+              <button :class="['param-btn', { open: openPopover === 'quality' }]" type="button" aria-label="Quality" @click="togglePopover('quality')">
                 {{ selectedQualityLabel }}
                 <ChevronDown :size="12" />
               </button>
               <Transition name="pop">
                 <div v-if="openPopover === 'quality'" class="menu-pop param-menu" role="menu">
-                  <span class="menu-title">质量</span>
+                  <span class="menu-title">Quality</span>
                   <button
                     v-for="item in currentQualityOptions"
                     :key="item.value"
@@ -1227,7 +1227,7 @@ function onLocalCropBeginFailed(message: string): void {
               <button
                 :class="['param-btn', { open: openPopover === 'resolution', ultra: isMaxResolution }]"
                 type="button"
-                aria-label="分辨率"
+                aria-label="Resolution"
                 @click="togglePopover('resolution')"
               >
                 {{ resolutionLabel }}
@@ -1236,18 +1236,18 @@ function onLocalCropBeginFailed(message: string): void {
               <Transition name="pop">
                 <div v-if="openPopover === 'resolution'" class="menu-pop slider-pop">
                   <div class="resolution-heading">
-                    <span>分辨率</span>
+                    <span>Resolution</span>
                     <strong :class="{ ultra: isMaxResolution }">{{ resolutionLabel }}</strong>
                     <button
                       class="resolution-help"
                       type="button"
-                      title="更高分辨率会生成更清晰的细节，同时需要更长处理时间"
-                      aria-label="分辨率说明"
+                      title="Higher resolution produces finer detail and may take longer"
+                      aria-label="Resolution details"
                     >
                       <HelpCircle :size="14" />
                     </button>
                   </div>
-                  <div class="slider-labels"><span>更快</span><span>更清晰</span></div>
+                  <div class="slider-labels"><span>Faster</span><span>Sharper</span></div>
                   <div :class="['resolution-track', { ultra: isMaxResolution }]" :style="resolutionTrackStyle">
                     <ResolutionEnergyCanvas :progress="resolutionProgress" :ultra="isMaxResolution" />
                     <input
@@ -1258,7 +1258,7 @@ function onLocalCropBeginFailed(message: string): void {
                       step="0.01"
                       :value="resolutionSlide"
                       :aria-valuetext="resolutionLabel"
-                      aria-label="分辨率档位"
+                      aria-label="Resolution level"
                       @input="onResolutionSlideInput"
                       @change="onResolutionSlideCommit"
                       @pointerup="onResolutionSlideCommit"
@@ -1275,8 +1275,8 @@ function onLocalCropBeginFailed(message: string): void {
             :class="['voice-btn', { listening: isVoiceListening, recognizing: isVoiceRecognizing }]"
             type="button"
             :disabled="submitting"
-            :aria-label="isVoiceListening ? '停止语音输入' : '语音输入'"
-            :title="isVoiceListening ? '停止并识别' : '语音输入提示词'"
+            :aria-label="isVoiceListening ? 'Stop voice input' : 'Voice input'"
+            :title="isVoiceListening ? 'Stop and transcribe' : 'Dictate a prompt'"
             @click="toggleVoiceInput"
           >
             <LoaderCircle v-if="isVoiceRecognizing" :size="15" class="spin" />
@@ -1289,7 +1289,7 @@ function onLocalCropBeginFailed(message: string): void {
             class="send-btn"
             type="button"
             :disabled="!canSubmitBatchSku"
-            :aria-label="canSubmitBatchSku ? `确认生成 ${selectionCount} 个任务` : '请选择 SKU 商品图和模板图'"
+            :aria-label="canSubmitBatchSku ? `Create ${selectionCount} tasks` : 'Choose SKU product images and a template'"
             @click="submitWorkflow"
           >
             <LoaderCircle v-if="submitting" :size="16" class="spin" />
@@ -1303,10 +1303,10 @@ function onLocalCropBeginFailed(message: string): void {
           <span v-if="pickerError" class="rep-error">{{ pickerError }}</span>
           <span v-else-if="voiceStatus" class="voice-status" role="status" aria-live="polite">{{ voiceStatus }}</span>
           <span v-else-if="selectionCount > 0 && skuTemplate">{{ selectionCount }} local requests · provider billed separately</span>
-          <span v-else-if="selectionCount > 0">已选 {{ selectionCount }} 个 SKU · 还需模板图</span>
-          <span v-else>添加 SKU 商品图与模板后可提交</span>
+          <span v-else-if="selectionCount > 0">{{ selectionCount }} SKU selected · add a template</span>
+          <span v-else>Add SKU product images and a template to queue tasks</span>
         </div>
-        <span>⌘ ↵ 生成</span>
+        <span>⌘ ↵ Create</span>
       </div>
     </section>
   </div>
@@ -1317,34 +1317,34 @@ function onLocalCropBeginFailed(message: string): void {
       <div :class="['ref-scroll', 'detail-ref-scroll', { 'has-plans': plans.length > 0 }]">
         <div class="slot-block detail-hero-block">
           <div class="section-title">
-            <strong>商品与风格</strong>
-            <span>主图 16:9 · 风格 1:1 × 3</span>
+            <strong>Product &amp; style</strong>
+            <span>Hero 16:9 · Style 1:1 × 3</span>
           </div>
           <div class="detail-asset-row">
             <div
               class="image-slot detail-main"
               role="button"
               tabindex="0"
-              :aria-label="detailProduct ? '更换商品主图' : '选择商品主图'"
+              :aria-label="detailProduct ? 'Replace hero product image' : 'Choose hero product image'"
               @click="chooseDetailProduct"
               @keydown.enter.prevent="chooseDetailProduct"
               @keydown.space.prevent="chooseDetailProduct"
             >
               <template v-if="detailProduct">
                 <img :src="detailProduct.previewDataUrl" :alt="detailProduct.name" />
-                <span class="remove" role="button" aria-label="移除" @click.stop="removeDetailProduct"><X :size="11" /></span>
+                <span class="remove" role="button" aria-label="Remove" @click.stop="removeDetailProduct"><X :size="11" /></span>
                 <button class="paste-action on-image" type="button" @click.stop="pasteDetailProduct">
                   <ClipboardPaste :size="11" />
-                  粘贴
+                  Paste
                 </button>
               </template>
               <template v-else>
                 <ImagePlus :size="22" />
-                <span class="slot-label">商品主图</span>
+                <span class="slot-label">Hero product</span>
                 <span class="slot-hint">16:9</span>
                 <button class="paste-action compact" type="button" @click.stop="pasteDetailProduct">
                   <ClipboardPaste :size="11" />
-                  粘贴
+                  Paste
                 </button>
               </template>
             </div>
@@ -1355,25 +1355,25 @@ function onLocalCropBeginFailed(message: string): void {
                 class="image-slot detail-style"
                 role="button"
                 tabindex="0"
-                :aria-label="image ? `更换风格参考 ${slot + 1}` : `添加风格参考 ${slot + 1}`"
+                :aria-label="image ? `Replace style reference ${slot + 1}` : `Add style reference ${slot + 1}`"
                 @click="chooseDetailStyleAt(slot)"
                 @keydown.enter.prevent="chooseDetailStyleAt(slot)"
                 @keydown.space.prevent="chooseDetailStyleAt(slot)"
               >
                 <template v-if="image">
                   <img :src="image.previewDataUrl" :alt="image.name" />
-                  <span class="remove" role="button" aria-label="移除" @click.stop="removeDetailStyleAt(slot)"><X :size="11" /></span>
+                  <span class="remove" role="button" aria-label="Remove" @click.stop="removeDetailStyleAt(slot)"><X :size="11" /></span>
                   <button class="paste-action on-image" type="button" @click.stop="pasteDetailStyleAt(slot)">
                     <ClipboardPaste :size="11" />
-                    粘贴
+                    Paste
                   </button>
                 </template>
                 <template v-else>
                   <Plus :size="16" />
-                  <span class="slot-label">风格</span>
+                  <span class="slot-label">Style</span>
                   <button class="paste-action compact" type="button" @click.stop="pasteDetailStyleAt(slot)">
                     <ClipboardPaste :size="11" />
-                    粘贴
+                    Paste
                   </button>
                 </template>
               </div>
@@ -1382,29 +1382,29 @@ function onLocalCropBeginFailed(message: string): void {
 
           <div class="detail-fields">
             <label class="name-field">
-              <span>商品名称</span>
-              <input v-model="productName" type="text" maxlength="80" placeholder="例如：复活草修护精华" />
+              <span>Product name</span>
+              <input v-model="productName" type="text" maxlength="80" placeholder="e.g. Renewal Repair Serum" />
             </label>
             <label class="points-field">
               <div class="field-label-row">
-                <span>核心卖点</span>
+                <span>Key selling points</span>
                 <button
                   class="optimize-btn"
                   type="button"
                   :disabled="optimizingPoints"
-                  title="用 AI 润色核心卖点（与小程序 AI 润色同源）"
+                  title="Polish selling points locally with the configured provider"
                   @click="optimizeSellingPoints"
                 >
                   <LoaderCircle v-if="optimizingPoints" :size="13" class="spin" />
                   <WandSparkles v-else :size="13" />
-                  {{ optimizingPoints ? '优化中…' : '优化提示词' }}
+                  {{ optimizingPoints ? 'Polishing…' : 'Polish copy' }}
                 </button>
               </div>
               <textarea
                 v-model="sellingPoints"
                 rows="5"
                 maxlength="400"
-                placeholder="功效、成分、肤感、目标人群、使用场景…写具体一点，方案文案会更准"
+                placeholder="Benefits, ingredients, texture, audience, usage scene… be specific for sharper plans"
               />
             </label>
           </div>
@@ -1412,7 +1412,7 @@ function onLocalCropBeginFailed(message: string): void {
           <div class="detail-actions">
             <button class="plan-button" type="button" @click="buildDetailPlans">
               <Sparkles :size="15" />
-              生成 8 组场景方案
+              Generate 8 scene plans
             </button>
           </div>
           <p v-if="pickerError && !plans.length" class="workflow-error">{{ pickerError }}</p>
@@ -1420,8 +1420,8 @@ function onLocalCropBeginFailed(message: string): void {
 
         <div v-if="plans.length" class="slot-block plan-block">
           <div class="section-title">
-            <strong>场景方案</strong>
-            <span>已启用 {{ detailEnabledCount }}/{{ plans.length }} · 可改文案或关闭</span>
+            <strong>Scene plans</strong>
+            <span>{{ detailEnabledCount }}/{{ plans.length }} enabled · edit copy or disable</span>
           </div>
           <div class="plan-list">
             <article
@@ -1429,7 +1429,7 @@ function onLocalCropBeginFailed(message: string): void {
               :key="plan.title"
               :class="['plan-item', { disabled: !plan.enabled }]"
             >
-              <button type="button" class="plan-check" :aria-label="plan.enabled ? '停用方案' : '启用方案'" @click="plan.enabled = !plan.enabled">
+              <button type="button" class="plan-check" :aria-label="plan.enabled ? 'Disable plan' : 'Enable plan'" @click="plan.enabled = !plan.enabled">
                 <Check v-if="plan.enabled" :size="13" />
               </button>
               <div>
@@ -1450,26 +1450,26 @@ function onLocalCropBeginFailed(message: string): void {
             v-model="detailExtra"
             rows="2"
             maxlength="500"
-            placeholder="可选补充（会加到每组方案末尾）"
+            placeholder="Optional direction appended to every plan"
             @keydown.meta.enter="submitWorkflow"
             @keydown.ctrl.enter="submitWorkflow"
           />
         </div>
 
         <div class="composer-bottom">
-          <button class="icon-round" type="button" title="重新生成场景方案" :disabled="!detailProduct" @click="buildDetailPlans">
+          <button class="icon-round" type="button" title="Regenerate scene plans" :disabled="!detailProduct" @click="buildDetailPlans">
             <Sparkles :size="16" />
           </button>
 
           <div class="composer-params">
             <div class="pop-wrap">
-              <button :class="['param-btn', { open: openPopover === 'provider' }]" type="button" aria-label="生成线路" @click="togglePopover('provider')">
+              <button :class="['param-btn', { open: openPopover === 'provider' }]" type="button" aria-label="Generation provider" @click="togglePopover('provider')">
                 {{ selectedProviderLabel }}
                 <ChevronDown :size="12" />
               </button>
               <Transition name="pop">
                 <div v-if="openPopover === 'provider'" class="menu-pop param-menu scrollable" role="menu">
-                  <span class="menu-title">线路</span>
+                  <span class="menu-title">Provider</span>
                   <button
                     v-for="provider in providers"
                     :key="provider.id"
@@ -1488,13 +1488,13 @@ function onLocalCropBeginFailed(message: string): void {
             </div>
 
             <div class="pop-wrap">
-              <button :class="['param-btn', { open: openPopover === 'size' }]" type="button" aria-label="画面比例" @click="togglePopover('size')">
+              <button :class="['param-btn', { open: openPopover === 'size' }]" type="button" aria-label="Aspect ratio" @click="togglePopover('size')">
                 {{ selectedSizeLabel }}
                 <ChevronDown :size="12" />
               </button>
               <Transition name="pop">
                 <div v-if="openPopover === 'size'" class="menu-pop param-menu scrollable" role="menu">
-                  <span class="menu-title">画面比例</span>
+                  <span class="menu-title">Aspect ratio</span>
                   <button
                     v-for="item in activeProvider?.sizeOptions || []"
                     :key="item.value"
@@ -1513,13 +1513,13 @@ function onLocalCropBeginFailed(message: string): void {
             </div>
 
             <div v-if="currentQualityOptions.length > 1" class="pop-wrap">
-              <button :class="['param-btn', { open: openPopover === 'quality' }]" type="button" aria-label="质量" @click="togglePopover('quality')">
+              <button :class="['param-btn', { open: openPopover === 'quality' }]" type="button" aria-label="Quality" @click="togglePopover('quality')">
                 {{ selectedQualityLabel }}
                 <ChevronDown :size="12" />
               </button>
               <Transition name="pop">
                 <div v-if="openPopover === 'quality'" class="menu-pop param-menu" role="menu">
-                  <span class="menu-title">质量</span>
+                  <span class="menu-title">Quality</span>
                   <button
                     v-for="item in currentQualityOptions"
                     :key="item.value"
@@ -1540,7 +1540,7 @@ function onLocalCropBeginFailed(message: string): void {
               <button
                 :class="['param-btn', { open: openPopover === 'resolution', ultra: isMaxResolution }]"
                 type="button"
-                aria-label="分辨率"
+                aria-label="Resolution"
                 @click="togglePopover('resolution')"
               >
                 {{ resolutionLabel }}
@@ -1549,13 +1549,13 @@ function onLocalCropBeginFailed(message: string): void {
               <Transition name="pop">
                 <div v-if="openPopover === 'resolution'" class="menu-pop slider-pop">
                   <div class="resolution-heading">
-                    <span>分辨率</span>
+                    <span>Resolution</span>
                     <strong :class="{ ultra: isMaxResolution }">{{ resolutionLabel }}</strong>
-                    <button class="resolution-help" type="button" title="更高分辨率会生成更清晰的细节，同时需要更长处理时间" aria-label="分辨率说明">
+                    <button class="resolution-help" type="button" title="Higher resolution produces finer detail and may take longer" aria-label="Resolution details">
                       <HelpCircle :size="14" />
                     </button>
                   </div>
-                  <div class="slider-labels"><span>更快</span><span>更清晰</span></div>
+                  <div class="slider-labels"><span>Faster</span><span>Sharper</span></div>
                   <div :class="['resolution-track', { ultra: isMaxResolution }]" :style="resolutionTrackStyle">
                     <ResolutionEnergyCanvas :progress="resolutionProgress" :ultra="isMaxResolution" />
                     <input
@@ -1566,7 +1566,7 @@ function onLocalCropBeginFailed(message: string): void {
                       step="0.01"
                       :value="resolutionSlide"
                       :aria-valuetext="resolutionLabel"
-                      aria-label="分辨率档位"
+                      aria-label="Resolution level"
                       @input="onResolutionSlideInput"
                       @change="onResolutionSlideCommit"
                       @pointerup="onResolutionSlideCommit"
@@ -1583,8 +1583,8 @@ function onLocalCropBeginFailed(message: string): void {
             :class="['voice-btn', { listening: isVoiceListening, recognizing: isVoiceRecognizing }]"
             type="button"
             :disabled="submitting"
-            :aria-label="isVoiceListening ? '停止语音输入' : '语音输入'"
-            :title="isVoiceListening ? '停止并识别' : '语音输入补充要求'"
+            :aria-label="isVoiceListening ? 'Stop voice input' : 'Voice input'"
+            :title="isVoiceListening ? 'Stop and transcribe' : 'Dictate additional direction'"
             @click="toggleVoiceInput"
           >
             <LoaderCircle v-if="isVoiceRecognizing" :size="15" class="spin" />
@@ -1597,7 +1597,7 @@ function onLocalCropBeginFailed(message: string): void {
             class="send-btn"
             type="button"
             :disabled="!canSubmitDetail"
-            :aria-label="canSubmitDetail ? `确认生成 ${selectionCount} 个任务` : '请先生成并启用场景方案'"
+            :aria-label="canSubmitDetail ? `Create ${selectionCount} tasks` : 'Generate and enable a scene plan first'"
             @click="submitWorkflow"
           >
             <LoaderCircle v-if="submitting" :size="16" class="spin" />
@@ -1611,11 +1611,11 @@ function onLocalCropBeginFailed(message: string): void {
           <span v-if="pickerError" class="rep-error">{{ pickerError }}</span>
           <span v-else-if="voiceStatus" class="voice-status" role="status" aria-live="polite">{{ voiceStatus }}</span>
           <span v-else-if="selectionCount > 0">{{ selectionCount }} local requests · provider billed separately</span>
-          <span v-else-if="!detailProduct">先上传商品主图，再生成场景方案</span>
-          <span v-else-if="!plans.length">生成 8 组方案后可批量出图</span>
-          <span v-else>请至少启用一组场景方案</span>
+          <span v-else-if="!detailProduct">Upload a hero product image, then generate scene plans</span>
+          <span v-else-if="!plans.length">Generate 8 scene plans to create a batch</span>
+          <span v-else>Enable at least one scene plan</span>
         </div>
-        <span>⌘ ↵ 生成</span>
+        <span>⌘ ↵ Create</span>
       </div>
     </section>
   </div>

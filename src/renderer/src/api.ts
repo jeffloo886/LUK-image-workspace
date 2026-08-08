@@ -46,7 +46,7 @@ export class ApiError extends Error {
 }
 
 function requireDesktop(): NonNullable<Window['desktop']> {
-  if (!window.desktop) throw new ApiError('请在 LUK Image Workspace 桌面应用中使用')
+  if (!window.desktop) throw new ApiError('Use this feature in the LUK Image Workspace desktop app')
   return window.desktop
 }
 
@@ -87,12 +87,12 @@ async function request(
       }))
     })
   } catch (error) {
-    throw new ApiError(cleanMessage(error instanceof Error ? error.message : error, '网络连接失败'))
+    throw new ApiError(cleanMessage(error instanceof Error ? error.message : error, 'Network connection failed'))
   }
   const body = response.body as ImagesResponse | null
   if (response.status < 200 || response.status >= 300) {
     throw new ApiError(
-      cleanMessage(body?.error?.message || body?.message, `服务请求失败（HTTP ${response.status}）`),
+      cleanMessage(body?.error?.message || body?.message, `Provider request failed (HTTP ${response.status})`),
       response.status
     )
   }
@@ -125,7 +125,7 @@ async function resolveModel(model?: string): Promise<string> {
   const config = await requireDesktop().getProviderConfig()
   const resolved = String(model || config.model || '').trim()
   if (!config.baseUrl || !resolved || !config.hasApiKey) {
-    throw new ApiError('请先在设置中填写 API URL、API Key 和 Image2 模型名')
+    throw new ApiError('Add an API URL, API key, and Image2 model in Settings first')
   }
   return resolved
 }
@@ -145,13 +145,13 @@ export async function generateImages(input: ImageRequest): Promise<GeneratedImag
     quality: input.quality || 'auto'
   })
   const images = normalizeImages(body)
-  if (!images.length) throw new ApiError('服务返回成功，但没有可用图片结果')
+  if (!images.length) throw new ApiError('The provider returned success but no usable image result')
   return images
 }
 
 export async function editImages(input: ImageRequest): Promise<GeneratedImage[]> {
   const model = await resolveModel(input.model)
-  if (!input.sources?.length) throw new ApiError('图像编辑至少需要一张参考图')
+  if (!input.sources?.length) throw new ApiError('Image editing requires at least one reference image')
   const body = await request('edit', {
     model,
     prompt: input.prompt.trim(),
@@ -160,7 +160,7 @@ export async function editImages(input: ImageRequest): Promise<GeneratedImage[]>
     quality: input.quality || 'auto'
   }, input.sources.slice(0, 16))
   const images = normalizeImages(body)
-  if (!images.length) throw new ApiError('服务返回成功，但没有可用编辑结果')
+  if (!images.length) throw new ApiError('The provider returned success but no usable edit result')
   return images
 }
 
@@ -181,7 +181,7 @@ export async function testProviderConnection(): Promise<void> {
   try {
     await requireDesktop().testProviderConnection()
   } catch (error) {
-    throw new ApiError(cleanMessage(error instanceof Error ? error.message : error, '连接测试失败'))
+    throw new ApiError(cleanMessage(error instanceof Error ? error.message : error, 'Connection test failed'))
   }
 }
 

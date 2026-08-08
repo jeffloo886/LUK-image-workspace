@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="zh-CN">
+<html lang="en-US">
   <head>
     <meta charset="UTF-8" />
     <meta
@@ -7,7 +7,7 @@
       content="default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; frame-src https://www.photopea.com; img-src 'self' data: blob:; connect-src 'self' https://www.photopea.com;"
     />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Photopea 编辑</title>
+    <title>Photopea Editor</title>
     <style>
       :root {
         color-scheme: light dark;
@@ -174,13 +174,13 @@
     <div id="app">
       <header>
         <div class="meta">
-          <strong id="title">正在打开 Photopea…</strong>
-          <span id="subtitle">本地文件不会上传到任何服务器</span>
+          <strong id="title">Opening Photopea…</strong>
+          <span id="subtitle">Files are sent to Photopea only when you choose to edit.</span>
         </div>
         <div class="actions">
-          <button id="btn-save-as" type="button" disabled>另存</button>
-          <button id="btn-save" class="primary" type="button" disabled>保存</button>
-          <button id="btn-close" type="button">关闭</button>
+          <button id="btn-save-as" type="button" disabled>Save As</button>
+          <button id="btn-save" class="primary" type="button" disabled>Save</button>
+          <button id="btn-close" type="button">Close</button>
         </div>
       </header>
       <div id="stage">
@@ -188,8 +188,8 @@
         <div id="overlay" class="overlay">
           <div class="card" id="status-card">
             <div class="spinner" id="spinner"></div>
-            <h1 id="status-title">正在加载编辑器</h1>
-            <p id="status-text">需要联网访问 photopea.com</p>
+            <h1 id="status-title">Loading editor</h1>
+            <p id="status-text">An internet connection to photopea.com is required.</p>
           </div>
         </div>
         <div id="toast" class="toast"></div>
@@ -273,14 +273,14 @@ function buildConfig(theme) {
 
       function postToPea(message) {
         const win = frame.contentWindow
-        if (!win) throw new Error('Photopea 尚未就绪')
+        if (!win) throw new Error('Photopea is not ready')
         win.postMessage(message, PHOTOPEA_ORIGIN)
       }
 
       function waitForPea(kind) {
         if (pending) {
           window.clearTimeout(pending.timer)
-          pending.reject(new Error('上一次操作未完成'))
+          pending.reject(new Error('The previous operation did not finish'))
           pending = null
         }
         waitMode = kind
@@ -288,7 +288,7 @@ function buildConfig(theme) {
           const timer = window.setTimeout(() => {
             pending = null
             waitMode = 'idle'
-            reject(new Error(kind === 'waiting-save' ? '保存超时，请重试' : '加载超时，请检查网络后重试'))
+        reject(new Error(kind === 'waiting-save' ? 'Save timed out. Please try again.' : 'Loading timed out. Check your network and try again.'))
           }, kind === 'waiting-save' ? 120000 : 90000)
           pending = { resolve, reject, buffers: [], timer }
         })
@@ -315,7 +315,7 @@ function buildConfig(theme) {
       async function loadDocument() {
         if (!session) return
         setBusy(true)
-        showStatus('正在载入文档', session.fileName)
+        showStatus('Loading document', session.fileName)
         try {
           if (!peaReady) await waitForPea('waiting-load')
 const doneWait = waitForPea('waiting-load')
@@ -327,10 +327,10 @@ const source = JSON.stringify(session.sessionId)
           postToPea(`app.activeDocument.source = ${source}; app.activeDocument.name = ${name}; app.echoToOE("LOADED");`)
           documentLoaded = true
           hideStatus()
-          showToast('文档已载入，可直接编辑')
+          showToast('Document loaded. You can edit it now.')
         } catch (error) {
-          const message = error instanceof Error ? error.message : '载入文档失败'
-          showStatus('无法载入文档', message, true)
+          const message = error instanceof Error ? error.message : 'Failed to load the document'
+          showStatus('Unable to load document', message, true)
           window.photopeaHost?.reportError?.(message)
         } finally {
           setBusy(false)
@@ -345,7 +345,7 @@ const source = JSON.stringify(session.sessionId)
           buffer = bytes.buffer.slice(bytes.byteOffset || 0, (bytes.byteOffset || 0) + (bytes.byteLength || 0))
         }
         if (!buffer || !payload?.sessionId) {
-          showStatus('打开失败', '未收到可编辑文件', true)
+          showStatus('Open failed', 'No editable file was returned', true)
           return
         }
         session = {
@@ -359,11 +359,11 @@ const source = JSON.stringify(session.sessionId)
         }
         document.documentElement.dataset.theme = session.theme
         titleEl.textContent = session.fileName
-        subtitleEl.textContent = session.sourcePath || '本地工作区文件'
+        subtitleEl.textContent = session.sourcePath || 'Local workspace file'
         documentLoaded = false
         peaReady = false
         setBusy(true)
-        showStatus('正在加载编辑器', '首次打开需要联网下载 Photopea')
+        showStatus('Loading editor', 'The first launch requires an internet connection to load Photopea.')
         const config = buildConfig(session.theme)
         frame.src = `${PHOTOPEA_ORIGIN}#${encodeURIComponent(JSON.stringify(config))}`
       }
@@ -371,13 +371,13 @@ const source = JSON.stringify(session.sessionId)
       async function saveDocument(mode) {
         if (!session || !documentLoaded || busy) return
         setBusy(true)
-        showStatus(mode === 'saveAs' ? '正在另存' : '正在保存', '导出 PSD 并写回工作区')
+        showStatus(mode === 'saveAs' ? 'Saving a copy' : 'Saving', 'Exporting the PSD and writing it back to the workspace.')
         try {
           const wait = waitForPea('waiting-save')
           postToPea('app.activeDocument.saveToOE("psd"); app.echoToOE("SAVE_DONE");')
           const buffer = await wait
           if (!(buffer instanceof ArrayBuffer) || !buffer.byteLength) {
-            throw new Error('未收到导出数据')
+          throw new Error('No exported data was returned')
           }
           const result = await window.photopeaHost.save({
             sessionId: session.sessionId,
@@ -392,10 +392,10 @@ const source = JSON.stringify(session.sessionId)
             subtitleEl.textContent = result.path
           }
           hideStatus()
-          showToast(result?.mode === 'saveAs' ? '已另存到工作区' : '已保存到工作区')
+          showToast(result?.mode === 'saveAs' ? 'Saved a copy to the workspace' : 'Saved to the workspace')
         } catch (error) {
-          const message = error instanceof Error ? error.message : '保存失败'
-          showStatus('保存失败', message, true)
+          const message = error instanceof Error ? error.message : 'Save failed'
+          showStatus('Save failed', message, true)
           window.photopeaHost?.reportError?.(message)
         } finally {
           setBusy(false)
@@ -427,7 +427,7 @@ const source = JSON.stringify(session.sessionId)
             return
           }
           if (data === 'OPEN') {
-            showToast('请从 AI 图像工作台打开文件')
+              showToast('Open a file from the LUK Image Workspace first')
             return
           }
           if (data === 'LOADED' || data === 'SAVE_DONE') return
@@ -464,7 +464,7 @@ const source = JSON.stringify(session.sessionId)
 
       async function boot() {
         if (!window.photopeaHost) {
-          showStatus('初始化失败', 'Photopea 宿主桥接不可用', true)
+          showStatus('Initialization failed', 'The Photopea host bridge is unavailable.', true)
           return
         }
         window.photopeaHost.onBootstrap((payload) => {
@@ -474,8 +474,8 @@ const source = JSON.stringify(session.sessionId)
           const payload = await window.photopeaHost.ready()
           if (payload) await startSession(payload)
         } catch (error) {
-          const message = error instanceof Error ? error.message : '宿主初始化失败'
-          showStatus('初始化失败', message, true)
+          const message = error instanceof Error ? error.message : 'Host initialization failed'
+          showStatus('Initialization failed', message, true)
         }
       }
 

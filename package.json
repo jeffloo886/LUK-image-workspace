@@ -1,6 +1,6 @@
 {
   "name": "luk-image-workspace",
-  "version": "0.3.0",
+  "version": "0.3.1",
   "description": "LUK Image Workspace — a private, local-first creative production OS for macOS",
   "author": "LUK Image Workspace contributors",
   "private": true,
@@ -84,8 +84,8 @@
       "category": "public.app-category.graphics-design",
       "icon": "resources/icons/app-icon.png",
       "extendInfo": {
-        "NSMicrophoneUsageDescription": "用于将您的语音转换成图片提示词。",
-        "NSSpeechRecognitionUsageDescription": "用于识别您的语音并填写图片提示词。"
+        "NSMicrophoneUsageDescription": "Use your microphone to dictate image prompts.",
+        "NSSpeechRecognitionUsageDescription": "Recognize your voice and add it to image prompts."
       },
       "target": [
         {

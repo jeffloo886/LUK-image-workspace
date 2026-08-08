@@ -4,7 +4,7 @@ function loadImage(src: string): Promise<HTMLImageElement> {
   return new Promise((resolve, reject) => {
     const image = new Image()
     image.onload = () => resolve(image)
-    image.onerror = () => reject(new Error('转台帧加载失败'))
+    image.onerror = () => reject(new Error('Unable to load a turntable frame'))
     image.src = src
   })
 }
@@ -27,8 +27,8 @@ export async function exportTurntableWebm(options: {
   height?: number
 }): Promise<Blob> {
   const frames = options.frameDataUrls.filter(Boolean)
-  if (frames.length < 2) throw new Error('至少需要 2 个视角才能导出转台视频')
-  if (typeof MediaRecorder === 'undefined') throw new Error('当前环境不支持录制视频')
+  if (frames.length < 2) throw new Error('At least 2 angles are required to export a turntable video')
+  if (typeof MediaRecorder === 'undefined') throw new Error('Video recording is not supported in this environment')
 
   const images = await Promise.all(frames.map((src) => loadImage(src)))
   const width = Math.max(2, Math.round(options.width || images[0].naturalWidth || 1024))
@@ -40,7 +40,7 @@ export async function exportTurntableWebm(options: {
   canvas.width = width
   canvas.height = height
   const ctx = canvas.getContext('2d')
-  if (!ctx) throw new Error('无法创建画布')
+  if (!ctx) throw new Error('Unable to create the canvas')
 
   const stream = canvas.captureStream(Math.min(30, Math.round(1000 / frameMs)))
   const mimeType = pickMimeType()
@@ -51,10 +51,10 @@ export async function exportTurntableWebm(options: {
   }
 
   const stopped = new Promise<Blob>((resolve, reject) => {
-    recorder.onerror = () => reject(new Error('录制失败'))
+    recorder.onerror = () => reject(new Error('Recording failed'))
     recorder.onstop = () => {
       const blob = new Blob(chunks, { type: mimeType.includes('webm') ? 'video/webm' : mimeType })
-      if (!blob.size) reject(new Error('导出视频为空'))
+      if (!blob.size) reject(new Error('The exported video is empty'))
       else resolve(blob)
     }
   })
