@@ -1,10 +1,17 @@
 # OSS evidence checklist
 
-This document is a privacy-safe template for the public trial of LUK Image Workspace. Fill it with aggregate counts only; never add API keys, customer assets, signed URLs, local paths, usernames, or raw prompts.
+This document is a privacy-safe record for the public trial of LUK Image Workspace. Fill it with aggregate counts only; never add API keys, customer assets, signed URLs, local paths, usernames, or raw prompts.
+
+## Current release evidence
+
+- Latest public release: `v0.3.1`.
+- Validation includes the TypeScript check, the test suite, the deterministic mock Images API, and an arm64 DMG layout check.
+- No adoption numbers are claimed until real testers have completed the trial. Do not infer usage from stars, downloads, or synthetic demos.
+- The mock provider and all README visuals are synthetic and contain no real credentials or customer material.
 
 ## Trial plan
 
-- Window: 2–4 weeks after the public `v0.3.0` release
+- Window: 2–4 weeks after the public `v0.3.1` release
 - Testers: 3–10 volunteers
 - Audiences: independent creators and small product/content teams
 - Provider: each tester uses their own compatible Images API or the local mock server

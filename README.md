@@ -4,9 +4,31 @@
 
 LUK Image Workspace is a local-first desktop studio for image generation and production delivery. Bring your own API key, create through an OpenAI-compatible Images API, and keep the durable result on your Mac.
 
+[![CI](https://github.com/jeffloo886/LUK-image-workspace/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/jeffloo886/LUK-image-workspace/actions/workflows/ci.yml) [![Latest release](https://img.shields.io/github/v/release/jeffloo886/LUK-image-workspace?display_name=tag)](https://github.com/jeffloo886/LUK-image-workspace/releases/latest) [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+
 ![LUK Image Workspace showcase](docs/media/showcase.svg)
 
-English is the primary product language, with Chinese guidance throughout the UI. The first launch opens a product Showcase; choose **Start creating** to enter the workbench. You can reopen it from **About / Showcase**.
+The desktop UI is English-only. The first launch opens a product Showcase; choose **Start creating** to enter the workbench. You can reopen it from **About / Showcase**.
+
+## Product tour
+
+The demo uses synthetic fixtures only. It contains no real product photos, user paths, provider responses, or credentials.
+
+![LUK Image Workspace six-workflow demo](docs/media/demo.gif)
+
+| Quick Generate | Detail Workflow |
+| --- | --- |
+| ![Quick Generate](docs/media/quick-generate.svg) | ![Detail Workflow](docs/media/detail-workflow.svg) |
+
+| Batch SKU | Local Crop |
+| --- | --- |
+| ![Batch SKU](docs/media/batch-sku.svg) | ![Local Crop](docs/media/local-crop.svg) |
+
+| Image to PSD | Turntable Studio |
+| --- | --- |
+| ![Image to PSD](docs/media/image-to-psd.svg) | ![Turntable Studio](docs/media/turntable.svg) |
+
+[Download the latest Apple Silicon release](https://github.com/jeffloo886/LUK-image-workspace/releases/latest) · [View the changelog](CHANGELOG.md)
 
 ## What it does
 
@@ -32,7 +54,7 @@ Photopea is different: it is a third-party remote editor. A file is sent to Phot
 
 ## OpenAI-compatible Images API
 
-Configure these fields in **Settings / 设置**:
+Configure these fields in **Settings**:
 
 | Field | Example |
 | --- | --- |
@@ -112,7 +134,7 @@ docs/media/                   synthetic, privacy-safe product visuals
 - Local history intentionally does not retain original reference bytes for automatic re-upload after a restart. Re-select source images when re-running a failed request.
 - Photopea requires an explicit user action and its own network service.
 
-中文提示：这是一个本机优先、自己填 Provider 的桌面工具。API Key 只发给你填写并确认的服务，图片结果会立即保存到本机；不提供账号、积分、充值和远程历史同步。
+The product is local-first and provider-neutral: your API key is sent only to the endpoint you configure and confirm, while generated results are materialized on your Mac. There is no account, credit, recharge, or remote-history flow.
 
 ## OSS readiness
 
