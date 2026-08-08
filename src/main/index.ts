@@ -19,6 +19,7 @@ import {
 } from './ai/modelStore'
 import { shutdownAiWorker } from './ai/workerClient'
 import { buildApplicationMenu } from './appMenu'
+import { normalizeProviderBaseUrl, providerEndpoint, sanitizeProviderText, type ProviderOperation } from '../shared/provider'
 import {
   applyUpdate,
   checkForUpdates as runUpdateCheck,
@@ -49,15 +50,14 @@ import {
 
 type DesktopSettings = {
   outputDirectory: string
-  autoDownload: boolean
   theme: 'dark' | 'light' | 'system'
-  greetingName: string
   generationProviderId: number
   generationSize: string
   generationQuality: string
   generationResolution: string
   generationCount: number
-  siteUrl: string
+  providerBaseUrl: string
+  imageModel: string
 }
 
 type SelectedImage = {
@@ -68,53 +68,24 @@ type SelectedImage = {
   previewDataUrl: string
 }
 
+type ProviderConfig = {
+  baseUrl: string
+  model: string
+  hasApiKey: boolean
+  maskedApiKey: string
+}
+
 type ApiRequestPayload = {
-  path: string
-  method?: 'GET' | 'POST'
-  token?: string
+  operation: ProviderOperation
   json?: Record<string, unknown>
-  file?: {
+  files?: Array<{
     name: string
     type: string
     bytes: ArrayBuffer
-  }
+  }>
 }
 
-type DesktopSession = {
-  token: string
-  user: Record<string, unknown>
-}
-
-/*
- * 后端地址与租户号：仓库不内置任何特定线上服务地址。
- * 默认为占位符——不配置时应用无法真正调用生成服务（登录/积分/生成/充值）。
- * 运行前可通过环境变量覆盖，或直接修改下面两个常量指向自己的后端。
- */
-const API_BASE_URL = process.env.IMAGE_WORKSPACE_API_BASE_URL?.trim() || 'https://api.example.com'
-const TENANT_SN = process.env.IMAGE_WORKSPACE_TENANT_SN?.trim() || 'YOUR_TENANT_SN'
-const ALLOWED_API_PATHS = new Set([
-  '/api/app.image2.service/getConfig',
-  '/api/app.image2.generate/providers',
-  '/api/app.image2.generate/rewrite',
-  '/api/app.image2.auth/login',
-  '/api/app.image2.auth/wechatAuthUrl',
-  '/api/app.image2.auth/wechatLoginPoll',
-  '/api/app.image2.user/stats',
-  '/api/app.image2.user/overview',
-  // 微信扫码充值：套餐列表 → Native 下单 → 轮询到账
-  '/api/app.image2.package/lists',
-  '/api/app.image2.order/create',
-  '/api/app.image2.order/payStatus',
-  '/api/app.image2.upload/image',
-  '/api/app.image2.generate/create',
-  '/api/app.image2.task/poll',
-  '/api/app.image2.task/detail',
-  '/api/app.image2.task/history',
-  '/api/app.image2.task/delete',
-  '/api/app.image2.task/deleteFailed'
-])
-
-const APP_NAME = 'AI 图像工作台'
+const APP_NAME = 'LUK Image Workspace'
 const rendererDirectory = path.dirname(fileURLToPath(import.meta.url))
 const selectedFiles = new Map<string, string>()
 const generatedPsdFiles = new Set<string>()
@@ -125,58 +96,63 @@ let releaseWindowStateTracker: (() => void) | null = null
 let currentThemeSetting: DesktopSettings['theme'] = 'light'
 
 function defaultOutputDirectory(): string {
-  return path.join(homedir(), 'Documents', 'AI-Image-Workspace')
+  return path.join(homedir(), 'Documents', 'LUK-Image-Workspace')
 }
 
 function settingsPath(): string {
   return path.join(app.getPath('userData'), 'settings.json')
 }
 
-function sessionPath(): string {
+function legacySessionPath(): string {
   return path.join(app.getPath('userData'), 'session.json')
 }
 
-/*
- * 开发期登录旁路：登录门禁会挡住所有界面 QA（动画、间距这类改动根本看不到）。
- * 双重闸门 —— 必须同时是未打包的开发构建且显式设置环境变量，打包后永远不生效。
- * 注意 token 是假的，任何真实接口调用都会失败，这只用于验证界面。
- */
-function devFakeSession(): DesktopSession | null {
-  if (app.isPackaged || process.env.IMAGE_WORKSPACE_DEV_FAKE_SESSION !== '1') return null
-  return {
-    token: 'dev-fake-token',
-    user: { nickname: '开发预览', isMember: true }
-  }
+function providerKeyPath(): string {
+  return path.join(app.getPath('userData'), 'provider-key.json')
 }
 
-async function readSession(): Promise<DesktopSession | null> {
-  const fake = devFakeSession()
-  if (fake) return fake
-  if (!safeStorage.isEncryptionAvailable()) return null
+function sanitizeProviderError(value: unknown): unknown {
+  if (typeof value === 'string') {
+    return sanitizeProviderText(value)
+  }
+  if (Array.isArray(value)) return value.slice(0, 20).map(sanitizeProviderError)
+  if (!value || typeof value !== 'object') return value
+  const output: Record<string, unknown> = {}
+  for (const [key, item] of Object.entries(value as Record<string, unknown>)) {
+    if (/authorization|api[_-]?key|token|secret|password/i.test(key)) output[key] = '[redacted]'
+    else if (/url/i.test(key) && typeof item === 'string') {
+      try {
+        const parsed = new URL(item)
+        parsed.search = ''
+        output[key] = parsed.toString()
+      } catch {
+        output[key] = '[redacted-url]'
+      }
+    } else output[key] = sanitizeProviderError(item)
+  }
+  return output
+}
+
+async function readProviderKey(): Promise<string> {
+  if (!safeStorage.isEncryptionAvailable()) return ''
   try {
-    const stored = JSON.parse(await readFile(sessionPath(), 'utf8')) as { version?: number; encrypted?: string }
-    if (stored.version !== 1 || !stored.encrypted) return null
-    const decoded = safeStorage.decryptString(Buffer.from(stored.encrypted, 'base64'))
-    const session = JSON.parse(decoded) as DesktopSession
-    if (!String(session.token || '').trim()) return null
-    return {
-      token: String(session.token),
-      user: session.user && typeof session.user === 'object' ? session.user : {}
-    }
+    const stored = JSON.parse(await readFile(providerKeyPath(), 'utf8')) as { version?: number; encrypted?: string }
+    if (stored.version !== 1 || !stored.encrypted) return ''
+    return safeStorage.decryptString(Buffer.from(stored.encrypted, 'base64')).trim()
   } catch {
-    return null
+    return ''
   }
 }
 
-async function persistSession(value: DesktopSession): Promise<boolean> {
-  const token = String(value?.token || '').trim()
-  if (!token || !safeStorage.isEncryptionAvailable()) return false
-  const payload: DesktopSession = {
-    token,
-    user: value.user && typeof value.user === 'object' ? value.user : {}
+async function persistProviderKey(value: string): Promise<boolean> {
+  const key = String(value || '').trim().slice(0, 1000)
+  if (!key) {
+    await rm(providerKeyPath(), { force: true })
+    return true
   }
-  const encrypted = safeStorage.encryptString(JSON.stringify(payload)).toString('base64')
-  const destination = sessionPath()
+  if (!safeStorage.isEncryptionAvailable()) return false
+  const encrypted = safeStorage.encryptString(key).toString('base64')
+  const destination = providerKeyPath()
   const temporary = `${destination}.${randomUUID()}.tmp`
   await mkdir(app.getPath('userData'), { recursive: true })
   await writeFile(temporary, `${JSON.stringify({ version: 1, encrypted })}\n`, { encoding: 'utf8', mode: 0o600 })
@@ -184,43 +160,27 @@ async function persistSession(value: DesktopSession): Promise<boolean> {
   return true
 }
 
-async function clearSession(): Promise<boolean> {
-  await rm(sessionPath(), { force: true })
+async function clearProviderKey(): Promise<boolean> {
+  await rm(providerKeyPath(), { force: true })
   return true
 }
 
-const SETTINGS_VERSION = 5
+const SETTINGS_VERSION = 7
 const THEME_SETTINGS_VERSION = 3
-const ALLOWED_GENERATION_COUNTS = new Set([1, 3, 5, 7, 10, 15, 20])
+const ALLOWED_GENERATION_COUNTS = new Set([1, 2, 4, 6, 8, 10])
 
 function defaultSettings(): DesktopSettings {
   return {
     outputDirectory: defaultOutputDirectory(),
-    autoDownload: true,
     theme: 'light',
-    greetingName: '',
     generationProviderId: 0,
     generationSize: '1:1',
     generationQuality: 'low',
     generationResolution: '1K',
     generationCount: 1,
-    siteUrl: ''
+    providerBaseUrl: '',
+    imageModel: ''
   }
-}
-
-function normalizeSiteUrl(value: unknown): string {
-  const raw = String(value || '').trim().slice(0, 300)
-  if (!raw) return ''
-  try {
-    const parsed = new URL(raw)
-    return ['http:', 'https:'].includes(parsed.protocol) ? parsed.toString() : ''
-  } catch {
-    return ''
-  }
-}
-
-function normalizeGreetingName(value: unknown): string {
-  return String(value || '').replace(/\s+/g, ' ').trim().slice(0, 12)
 }
 
 async function readSettings(): Promise<DesktopSettings> {
@@ -233,15 +193,14 @@ async function readSettings(): Promise<DesktopSettings> {
       : (raw.theme === 'system' ? 'system' : 'light')
     return {
       outputDirectory: String(raw.outputDirectory || defaults.outputDirectory),
-      autoDownload: raw.autoDownload !== false,
       theme: migrated === 'dark' || migrated === 'system' ? migrated : 'light',
-      greetingName: normalizeGreetingName(raw.greetingName),
       generationProviderId: Math.max(0, Math.floor(Number(raw.generationProviderId || 0))),
       generationSize: String(raw.generationSize || defaults.generationSize),
       generationQuality: String(raw.generationQuality || defaults.generationQuality),
       generationResolution: String(raw.generationResolution || defaults.generationResolution),
       generationCount: ALLOWED_GENERATION_COUNTS.has(Number(raw.generationCount)) ? Number(raw.generationCount) : defaults.generationCount,
-      siteUrl: normalizeSiteUrl(raw.siteUrl)
+      providerBaseUrl: normalizeProviderBaseUrl(raw.providerBaseUrl),
+      imageModel: String(raw.imageModel || '').trim().slice(0, 160)
     }
   } catch {
     return defaultSettings()
@@ -251,15 +210,14 @@ async function readSettings(): Promise<DesktopSettings> {
 async function persistSettings(next: DesktopSettings): Promise<DesktopSettings> {
   const normalized: DesktopSettings = {
     outputDirectory: path.resolve(next.outputDirectory || defaultOutputDirectory()),
-    autoDownload: next.autoDownload !== false,
     theme: next.theme === 'light' || next.theme === 'system' ? next.theme : 'dark',
-    greetingName: normalizeGreetingName(next.greetingName),
     generationProviderId: Math.max(0, Math.floor(Number(next.generationProviderId || 0))),
     generationSize: String(next.generationSize || '1:1').slice(0, 40),
     generationQuality: String(next.generationQuality || 'low').slice(0, 40),
     generationResolution: String(next.generationResolution || '1K').slice(0, 40),
     generationCount: ALLOWED_GENERATION_COUNTS.has(Number(next.generationCount)) ? Number(next.generationCount) : 1,
-    siteUrl: normalizeSiteUrl(next.siteUrl)
+    providerBaseUrl: normalizeProviderBaseUrl(next.providerBaseUrl),
+    imageModel: String(next.imageModel || '').trim().slice(0, 160)
   }
   await mkdir(app.getPath('userData'), { recursive: true })
   await mkdir(normalized.outputDirectory, { recursive: true })
@@ -721,7 +679,23 @@ async function readLocalCropPreview(
   return { previewDataUrl: `data:image/png;base64,${bytes.toString('base64')}` }
 }
 
-/** 历史同步后从输出目录找回 local-crop-{taskId}-*.png 拼合结果 */
+async function readSavedResultPreview(
+  event: IpcMainInvokeEvent,
+  filePath: string
+): Promise<{ previewDataUrl: string }> {
+  assertTrustedSender(event)
+  const resolved = path.resolve(String(filePath || ''))
+  const settings = await readSettings()
+  const outputRoot = path.resolve(settings.outputDirectory)
+  if (!resolved.startsWith(`${outputRoot}${path.sep}`)) throw new Error('拒绝读取未授权文件')
+  const bytes = await sharp(resolved, { limitInputPixels: 80_000_000 })
+    .resize({ width: 1200, withoutEnlargement: true })
+    .png()
+    .toBuffer()
+  return { previewDataUrl: `data:image/png;base64,${bytes.toString('base64')}` }
+}
+
+/** 从本机输出目录找回 local-crop-{taskId}-*.png 拼合结果 */
 async function findLocalCropComposite(
   event: IpcMainInvokeEvent,
   taskIdRaw: number
@@ -778,6 +752,7 @@ async function compositeLocalCropHandler(
     sceneImageId?: string
     scenePath?: string
     patchUrl: string
+    patchPath?: string
     cropBox: { x: number; y: number; size: number }
     maskPaths?: Array<{ points: Array<{ x: number; y: number }>; brushSize: number; isEraser: boolean }>
   }
@@ -791,11 +766,20 @@ async function compositeLocalCropHandler(
     selectedFiles.get(String(payload.sceneImageId || '')) ||
     ''
   if (!scenePath) throw new Error('场景图缓存已失效，无法回贴合成')
-  const remoteUrl = new URL(String(payload.patchUrl || ''))
-  if (!['http:', 'https:'].includes(remoteUrl.protocol)) throw new Error('只允许合成 http(s) 结果图')
-  const response = await net.fetch(remoteUrl.toString())
-  if (!response.ok) throw new Error(`拉取生成图失败：HTTP ${response.status}`)
-  const patchBytes = Buffer.from(await response.arrayBuffer())
+  let patchBytes: Buffer
+  if (payload.patchPath) {
+    const patchPath = path.resolve(String(payload.patchPath))
+    const settings = await readSettings()
+    const outputRoot = path.resolve(settings.outputDirectory)
+    if (!patchPath.startsWith(`${outputRoot}${path.sep}`)) throw new Error('拒绝读取未授权结果图')
+    patchBytes = await readFile(patchPath)
+  } else {
+    const remoteUrl = new URL(String(payload.patchUrl || ''))
+    if (!['http:', 'https:'].includes(remoteUrl.protocol)) throw new Error('只允许合成 http(s) 结果图')
+    const response = await fetchProviderUrl(remoteUrl)
+    if (!response.ok) throw new Error(`拉取生成图失败：HTTP ${response.status}`)
+    patchBytes = Buffer.from(await response.arrayBuffer())
+  }
   if (!patchBytes.length) throw new Error('生成图为空')
   const settings = await readSettings()
   // IPC 可能带着 Vue Proxy 序列化后的普通对象；这里再拷一次，避免脏字段进 sharp
@@ -834,7 +818,7 @@ async function downloadResult(
   if (!['http:', 'https:'].includes(remoteUrl.protocol)) throw new Error('只允许下载 http(s) 结果')
   const settings = await readSettings()
   await mkdir(settings.outputDirectory, { recursive: true })
-  const response = await net.fetch(remoteUrl.toString())
+  const response = await fetchProviderUrl(remoteUrl)
   if (!response.ok) throw new Error(`下载失败：HTTP ${response.status}`)
   const bytes = Buffer.from(await response.arrayBuffer())
   if (!bytes.length) throw new Error('下载结果为空')
@@ -848,6 +832,26 @@ async function downloadResult(
     path: destination,
     sha256: createHash('sha256').update(bytes).digest('hex'),
     size: bytes.byteLength
+  }
+}
+
+async function fetchProviderUrl(remoteUrl: URL): Promise<Response> {
+  const settings = await readSettings()
+  const baseUrl = normalizeProviderBaseUrl(settings.providerBaseUrl)
+  const headers = new Headers()
+  if (baseUrl) {
+    const providerOrigin = new URL(baseUrl).origin
+    if (remoteUrl.origin === providerOrigin) {
+      const key = await readProviderKey()
+      if (key) headers.set('Authorization', `Bearer ${key}`)
+    }
+  }
+  // Remote result URLs are transient and never persisted. Only the configured
+  // provider origin receives the encrypted key; CDN URLs are fetched without it.
+  try {
+    return await net.fetch(remoteUrl.toString(), { headers, redirect: 'error' })
+  } catch (error) {
+    throw new Error(String(sanitizeProviderError(error instanceof Error ? error.message : error)))
   }
 }
 
@@ -883,43 +887,57 @@ async function writeWorkspaceFile(
 
 async function apiRequest(event: IpcMainInvokeEvent, payload: ApiRequestPayload): Promise<{ status: number; body: unknown }> {
   assertTrustedSender(event)
-  const requestUrl = new URL(String(payload.path || ''), API_BASE_URL)
-  if (requestUrl.origin !== API_BASE_URL || !ALLOWED_API_PATHS.has(requestUrl.pathname)) {
-    throw new Error('拒绝未授权的后台接口')
+  if (!payload || !['models', 'generate', 'edit'].includes(payload.operation)) {
+    throw new Error('不支持的 Images API 操作')
   }
-  requestUrl.searchParams.set('tenant_sn', TENANT_SN)
-  const method = payload.method === 'POST' ? 'POST' : 'GET'
+  const settings = await readSettings()
+  const baseUrl = normalizeProviderBaseUrl(settings.providerBaseUrl)
+  if (!baseUrl) throw new Error('请先在设置中填写有效的 API Base URL')
+  const requestUrl = providerEndpoint(baseUrl, payload.operation)
+  const key = await readProviderKey()
+  if (!key) throw new Error('请先在设置中保存 API Key')
+  const method = payload.operation === 'models' ? 'GET' : 'POST'
   const headers = new Headers()
-  const token = String(payload.token || '').trim()
-  if (token) {
-    headers.set('token', token)
-    headers.set('Authorization', `Bearer ${token}`)
-  }
+  headers.set('Authorization', `Bearer ${key}`)
+  headers.set('Accept', 'application/json')
   let body: string | FormData | undefined
-  if (payload.file) {
-    if (requestUrl.pathname !== '/api/app.image2.upload/image') throw new Error('文件只允许上传到图片接口')
+  if (payload.files?.length) {
+    if (payload.operation !== 'edit') throw new Error('文件只允许发送到图像编辑接口')
     const form = new FormData()
-    const bytes = Uint8Array.from(new Uint8Array(payload.file.bytes))
-    form.append('file', new Blob([bytes], { type: payload.file.type || 'application/octet-stream' }), payload.file.name || 'image.png')
+    for (const file of payload.files.slice(0, 16)) {
+      const bytes = Uint8Array.from(new Uint8Array(file.bytes))
+      form.append('image[]', new Blob([bytes], { type: file.type || 'application/octet-stream' }), file.name || 'image.png')
+    }
+    if (payload.json) {
+      for (const [name, value] of Object.entries(payload.json)) {
+        if (value === undefined || value === null) continue
+        form.append(name, typeof value === 'string' ? value : JSON.stringify(value))
+      }
+    }
     body = form
   } else if (payload.json) {
     headers.set('Content-Type', 'application/json')
     body = JSON.stringify(payload.json)
   }
-  const response = await net.fetch(requestUrl.toString(), {
-    method,
-    headers,
-    body,
-    redirect: 'error'
-  })
+  let response: Response
+  try {
+    response = await net.fetch(requestUrl.toString(), {
+      method,
+      headers,
+      body,
+      redirect: 'error'
+    })
+  } catch (error) {
+    throw new Error(String(sanitizeProviderError(error instanceof Error ? error.message : error)))
+  }
   const text = await response.text()
   let responseBody: unknown = null
   try {
     responseBody = text ? JSON.parse(text) : null
   } catch {
-    responseBody = { code: 0, msg: text || `服务请求失败（HTTP ${response.status}）`, data: null }
+    responseBody = { error: { message: text || `服务请求失败（HTTP ${response.status}）` } }
   }
-  return { status: response.status, body: responseBody }
+  return { status: response.status, body: sanitizeProviderError(responseBody) }
 }
 
 function registerIpc(): void {
@@ -929,9 +947,7 @@ function registerIpc(): void {
       name: APP_NAME,
       version: app.getVersion(),
       platform: process.platform,
-      arch: process.arch,
-      // 渲染层据此在开发预览下跳过「登录过期」自动登出，否则假 token 一被后端拒绝就退回登录页
-      devFakeSession: Boolean(devFakeSession())
+      arch: process.arch
     }
   })
   ipcMain.handle('desktop:get-settings', async (event) => {
@@ -940,17 +956,44 @@ function registerIpc(): void {
     await mkdir(settings.outputDirectory, { recursive: true })
     return settings
   })
-  ipcMain.handle('desktop:get-session', async (event) => {
+  ipcMain.handle('desktop:get-provider-config', async (event): Promise<ProviderConfig> => {
     assertTrustedSender(event)
-    return readSession()
+    const settings = await readSettings()
+    const key = await readProviderKey()
+    const maskedApiKey = key.length > 7 ? `${key.slice(0, 3)}••••${key.slice(-4)}` : (key ? '••••••••' : '')
+    return {
+      baseUrl: settings.providerBaseUrl,
+      model: settings.imageModel,
+      hasApiKey: Boolean(key),
+      maskedApiKey
+    }
   })
-  ipcMain.handle('desktop:save-session', async (event, value: DesktopSession) => {
+  ipcMain.handle('desktop:save-provider-config', async (event, value: { baseUrl: string; model: string; apiKey?: string; clearApiKey?: boolean }) => {
     assertTrustedSender(event)
-    return persistSession(value)
+    const settings = await readSettings()
+    const baseUrl = normalizeProviderBaseUrl(value?.baseUrl)
+    const model = String(value?.model || '').trim().slice(0, 160)
+    if (String(value?.baseUrl || '').trim() && !baseUrl) throw new Error('API Base URL 必须是 HTTPS 或本机 HTTP 地址')
+    if (!model && baseUrl) throw new Error('请填写 Image2 模型名')
+    const keyInput = value?.apiKey === undefined ? undefined : String(value.apiKey || '').trim()
+    if (keyInput !== undefined && keyInput && !safeStorage.isEncryptionAvailable()) {
+      throw new Error('当前系统不支持安全凭证存储，未保存 API Key')
+    }
+    await persistSettings({ ...settings, providerBaseUrl: baseUrl, imageModel: model })
+    if (value?.clearApiKey || keyInput === '') await clearProviderKey()
+    else if (keyInput) {
+      if (!await persistProviderKey(keyInput)) throw new Error('系统无法安全保存 API Key')
+    }
+    return true
   })
-  ipcMain.handle('desktop:clear-session', async (event) => {
+  ipcMain.handle('desktop:test-provider-connection', async (event) => {
     assertTrustedSender(event)
-    return clearSession()
+    const result = await apiRequest(event, { operation: 'models' })
+    if (result.status < 200 || result.status >= 300) {
+      const body = result.body as { error?: { message?: string }; message?: string } | null
+      throw new Error(String(body?.error?.message || body?.message || `连接失败（HTTP ${result.status}）`).slice(0, 500))
+    }
+    return true
   })
   ipcMain.handle('desktop:save-settings', async (event, value: DesktopSettings) => {
     assertTrustedSender(event)
@@ -995,6 +1038,7 @@ function registerIpc(): void {
   ipcMain.handle('desktop:cache-local-crop-scene', cacheLocalCropSceneHandler)
   ipcMain.handle('desktop:composite-local-crop', compositeLocalCropHandler)
   ipcMain.handle('desktop:read-local-crop-preview', readLocalCropPreview)
+  ipcMain.handle('desktop:read-saved-result-preview', readSavedResultPreview)
   ipcMain.handle('desktop:find-local-crop-composite', findLocalCropComposite)
   ipcMain.handle('desktop:download-result', downloadResult)
   ipcMain.handle('desktop:write-workspace-file', writeWorkspaceFile)
@@ -1254,11 +1298,8 @@ function createWindow(theme: DesktopSettings['theme'] = 'light'): void {
   mainWindow.on('enter-full-screen', syncWindowChrome)
   mainWindow.on('leave-full-screen', syncWindowChrome)
   mainWindow.webContents.on('did-finish-load', syncWindowChrome)
-  mainWindow.webContents.on('console-message', (_event, level, message, line, sourceId) => {
-    console.log(`[renderer:${level}] ${message} (${sourceId}:${line})`)
-  })
   mainWindow.webContents.on('render-process-gone', (_event, details) => {
-    console.error('[renderer] process gone', details)
+    console.error('[renderer] process gone', details.reason)
   })
   mainWindow.webContents.on('preload-error', (_event, preloadPath, error) => {
     console.error('[preload] error', preloadPath, error)
@@ -1295,7 +1336,7 @@ function createWindow(theme: DesktopSettings['theme'] = 'light'): void {
 
 registerIpc()
 
-// 单实例锁：双开会争抢 settings.json / session.json 与 ai-worker，也是更新器安全的前提。
+// 单实例锁：双开会争抢 settings.json 与 ai-worker，也是更新器安全的前提。
 // 第二个实例直接退出，把已有窗口带到前台。
 if (!app.requestSingleInstanceLock()) {
   app.quit()
@@ -1308,6 +1349,9 @@ if (!app.requestSingleInstanceLock()) {
 }
 
 app.whenReady().then(async () => {
+  // One-time migration: remove the old encrypted session. Local tasks,
+  // images and PSD files remain untouched.
+  await rm(legacySessionPath(), { force: true })
   const settings = await persistSettings(await readSettings())
   currentThemeSetting = settings.theme
 
@@ -1315,7 +1359,7 @@ app.whenReady().then(async () => {
     applicationName: APP_NAME,
     applicationVersion: app.getVersion(),
     version: '',
-    copyright: 'AI Image Workspace · desktop image generation studio'
+    copyright: 'LUK Image Workspace · local-first creative production studio'
   })
   buildApplicationMenu(() => mainWindow, {
     openSettings: () => mainWindow?.webContents.send('desktop:menu', 'settings'),

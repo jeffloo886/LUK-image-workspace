@@ -5,8 +5,8 @@
  *   node scripts/release.mjs --publish  # 额外 gh release create 上传到发布仓
  *
  * 产物：
- *   - AI-Image-Workspace-<v>-arm64.dmg   全新安装（含模型）
- *   - AI-Image-Workspace-<v>-update.zip  自更新包（不含模型，~110-130MB）
+ *   - LUK-Image-Workspace-<v>-arm64.dmg   全新安装（含模型）
+ *   - LUK-Image-Workspace-<v>-update.zip  自更新包（不含模型，~110-130MB）
  *   - latest.json                      更新元数据（含 Ed25519 签名）
  *
  * 前置：私钥已在 Keychain（security add-generic-password -s image-workspace-update-key），gh 已登录。
@@ -22,9 +22,9 @@ const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
 const pkg = JSON.parse(readFileSync(path.join(root, 'package.json'), 'utf8'))
 const version = pkg.version
 const publish = process.argv.includes('--publish')
-const APP_NAME = 'AI 图像工作台'
+const APP_NAME = 'LUK Image Workspace'
 // 发布前替换为自己的 GitHub 发布仓（上游产物仓，非源码仓）
-const RELEASE_REPO = 'YOUR_GITHUB_USERNAME/YOUR_RELEASE_REPO'
+const RELEASE_REPO = process.env.LUK_RELEASE_REPO || 'YOUR_GITHUB_USERNAME/YOUR_RELEASE_REPO'
 
 function run(cmd, args, opts = {}) {
   console.log(`$ ${cmd} ${args.join(' ')}`)
@@ -37,8 +37,9 @@ function fail(message) {
 }
 
 // 1. 前置断言（仅 --publish 时要求干净工作区/无重复 tag；纯构建可随时跑做验证）
-const tag = `desktop-v${version}`
+const tag = `v${version}`
 if (publish) {
+  if (RELEASE_REPO.includes('YOUR_GITHUB_USERNAME')) fail('请先设置 LUK_RELEASE_REPO，例如 owner/repository')
   const gitStatus = run('git', ['status', '--porcelain']).trim()
   if (gitStatus) fail('工作区不干净，请先提交或清理后再发布')
   const existingTags = run('git', ['tag', '--list', tag]).trim()
@@ -79,14 +80,14 @@ const staging = path.join(releaseDir, 'update-staging')
 rmSync(staging, { recursive: true, force: true })
 run('/usr/bin/ditto', [appPath, path.join(staging, `${APP_NAME}.app`)])
 rmSync(path.join(staging, `${APP_NAME}.app/Contents/Resources/ai-models`), { recursive: true, force: true })
-const updateZip = path.join(releaseDir, `AI-Image-Workspace-${version}-update.zip`)
+const updateZip = path.join(releaseDir, `LUK-Image-Workspace-${version}-update.zip`)
 rmSync(updateZip, { force: true })
 run('/usr/bin/ditto', ['-c', '-k', '--sequesterRsrc', '--keepParent', path.join(staging, `${APP_NAME}.app`), updateZip])
 rmSync(staging, { recursive: true, force: true })
 
 // 6. DMG（含模型，供全新安装）—— 复用已打包的 .app，不二次完整 pack
 run('npx', ['electron-builder', '--mac', 'dmg', '--arm64', '--prepackaged', path.join(root, 'build/release/mac-arm64')])
-const dmg = path.join(releaseDir, `AI-Image-Workspace-${version}-arm64.dmg`)
+const dmg = path.join(releaseDir, `LUK-Image-Workspace-${version}-arm64.dmg`)
 if (!existsSync(dmg)) fail('DMG 生成失败')
 
 // 7. 签名 + latest.json
@@ -117,8 +118,8 @@ try {
 
 const latest = {
   version,
-  notes: `AI 图像工作台 ${version}`,
-  url: `https://github.com/${RELEASE_REPO}/releases/download/${tag}/AI-Image-Workspace-${version}-update.zip`,
+  notes: `LUK Image Workspace ${version}`,
+  url: `https://github.com/${RELEASE_REPO}/releases/download/${tag}/LUK-Image-Workspace-${version}-update.zip`,
   sha256,
   size,
   signature
@@ -135,7 +136,7 @@ console.log(`   latest.json`)
 if (publish) {
   run('git', ['tag', tag])
   run('git', ['push', 'origin', tag])
-  run('gh', ['release', 'create', tag, dmg, updateZip, latestPath, '--repo', RELEASE_REPO, '--title', `Desktop ${version}`, '--notes', latest.notes])
+  run('gh', ['release', 'create', tag, dmg, updateZip, latestPath, '--repo', RELEASE_REPO, '--title', `LUK Image Workspace ${version}`, '--notes', latest.notes])
   console.log(`\n🚀 已发布 ${tag} 到 ${RELEASE_REPO}`)
 } else {
   console.log(`\n未发布。确认无误后加 --publish 上传，或手动 gh release create。`)

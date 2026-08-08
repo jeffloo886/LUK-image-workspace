@@ -1,119 +1,119 @@
-# AI Image Workspace
+# LUK Image Workspace
 
-A macOS desktop studio for AI image generation workflows, built with **Electron + Vue 3 + Vite**.
+**Creative Production OS for macOS — private by design.**
 
-It turns a single product photo into a full commercial visual package: detail-page scene plans, batch remakes, batch SKUs, localized scene editing, layered PSD export, and an 8-angle product turntable — all from a native desktop app with a clean, keyboard-friendly UI.
+LUK Image Workspace is a local-first desktop studio for image generation and production delivery. Bring your own API key, create through an OpenAI-compatible Images API, and keep the durable result on your Mac.
 
-> **Note on the backend**: this app talks to a self-hosted "image generation" backend (accounts, credits, generation tasks, top-ups) over the JSON API protocol defined in [`src/renderer/src/api.ts`](src/renderer/src/api.ts). The repository ships with **placeholder API/base and tenant settings** — nothing is hardcoded to any particular hosted service. You must point it at your own compatible backend before it becomes usable (see [Backend configuration](#backend-configuration)).
+![LUK Image Workspace showcase](docs/media/showcase.svg)
 
-## Features
+English is the primary product language, with Chinese guidance throughout the UI. The first launch opens a product Showcase; choose **Start creating** to enter the workbench. You can reopen it from **About / Showcase**.
 
-- **Text-to-image** and **image-to-image** with up to 4 reference images
-- **One-click detail page 4.0**: plan 8 scene options from one product photo, edit the plan, then batch-generate
-- **Batch remake**: transfer composition/lighting/style from up to 20 reference images
-- **Batch SKU**: reuse one visual template across many SKU variants
-- **Localized scene editing**: paint a region to refine, then feather-blend the result back into the original (scene edit modal + pixel-accurate compositing)
-- **Image → PSD** with layered masks, subject protection and optional mask editing — powered by local ONNX models (BiRefNet lite matting + LaMa background inpainting + PP-OCRv4 text detection), with a graceful fallback to macOS Vision compatibility mode when models are missing
-- **Embedded Photopea editing**: open local PSD/images in an in-app Photopea window; files never leave your machine
-- **Turntable studio**: 8-angle fake turntable from a single photo, with in-app spin preview and WebM loop export
-- **Voice-to-prompt** via a local macOS Speech recognizer
-- Persistent login session (encrypted via `safeStorage`), credit/usage dashboard, paginated task history synced with web/mini-program clients
-- Theme, output directory and auto-download settings; system notifications; single-instance lock
-- **Self-hosted auto-update**: Ed25519-signed update manifests (no Apple Developer ID required)
+## What it does
 
-## Screenshots
+- Quick Generate — text-to-image and image-to-image.
+- Detail Page Workflow — plan scenes, select the useful ones, then produce.
+- Batch Remake / SKU — reuse one visual system across many references.
+- Local Crop — send a baked crop edit and composite it back into the original scene locally.
+- Image → PSD — local AI-assisted layer extraction and editable PSD export.
+- 8-angle Turntable — generate eight views, preview the spin, and export WebM.
+- Local queue and local history — no account, credits, recharge flow, remote task polling, or remote delete.
 
-(TBD — add your own screenshots before publishing.)
+## Privacy boundary
 
-## Tech stack
+The application is BYOK (Bring Your Own Key):
 
-| Layer | Technology |
-|-------|------------|
-| UI | Vue 3, custom components (`App.vue`, `WorkflowStudio.vue`, `TurntableStudio.vue`, …) |
-| Desktop shell | Electron 37, electron-vite, context-isolated preload bridge |
-| Image processing | `sharp`, `ag-psd`, `onnxruntime-node` |
-| Local AI | BiRefNet lite ONNX, LaMa ONNX, PP-OCRv4 ONNX (downloaded via `npm run download:models`, gitignored) |
-| Native helpers | Objective-C helpers compiled with clang: `VisionSegmenter` (macOS Vision subject/text detection) and `SpeechRecognizer` (macOS Speech) |
+1. The API key is accepted by the Electron main process and encrypted with the operating system-backed `safeStorage` facility.
+2. The renderer receives only `hasApiKey` and a short mask; the key is never written to `localStorage`, ordinary settings, logs, screenshots, demo fixtures, issues, releases, or this repository.
+3. Provider API requests are made only to the normalized API origin you enter. The main process sends `Authorization: Bearer …` to that origin and there is no browser-side API fallback. The key is not sent to the project author, GitHub, OpenAI/Codex, analytics, or any hidden service. If the provider returns a temporary image URL on another CDN origin, LUK downloads that URL without attaching your key.
+4. Generated images are immediately written to the selected local output directory. History stores local paths, hashes, prompts, and necessary metadata; signed remote URLs and base64 results are not persisted.
+5. There is no telemetry, crash upload, usage analytics, hidden endpoint, or implicit report-back.
 
-## Requirements
+Photopea is different: it is a third-party remote editor. A file is sent to Photopea only after you explicitly choose **Open in Photopea**. The app does not claim that a Photopea edit is local-only.
 
-- macOS 14+
-- Node.js 20+ and npm
-- Xcode Command Line Tools (`xcrun clang`) for building the native helpers
+## OpenAI-compatible Images API
 
-## Quick start
+Configure these fields in **Settings / 设置**:
+
+| Field | Example |
+| --- | --- |
+| API Base URL | `https://your-provider.example/v1` |
+| API Key | stored encrypted locally; never shown in full |
+| Image2 Model | `gpt-image-1` or your provider’s model name |
+
+The app normalizes a provider root URL and a `/v1` URL, then calls:
+
+- `GET /v1/models` for **Test connection**;
+- `POST /v1/images/generations` for text-to-image;
+- `POST /v1/images/edits` for image-to-image, batch remake, SKU, local crop, and turntable requests.
+
+Both JSON `data[].b64_json` and `data[].url` responses are supported. Edit requests use multipart `image[]` parts and support multiple source images. If a provider does not implement `/images/edits`, LUK reports that capability error directly; it does not fall back to a private login API.
+
+The protocol shape follows the public [Images generation reference](https://developers.openai.com/api/reference/resources/images/methods/generate) and [Images edit reference](https://developers.openai.com/api/reference/resources/images/methods/edit).
+
+## Local demo — no real key required
+
+The repository includes a deterministic mock provider. It accepts a fake key only to exercise the same Bearer-auth shape; it never logs request headers or bodies.
 
 ```bash
-npm install
-npm run dev          # launch in development mode
+npm ci
+npm run demo:server
 ```
 
-Build a distributable (downloads AI models first, builds native helpers, type-checks):
+In another terminal:
 
 ```bash
-npm run build
-npm run package:arm64   # unpacked .app in build/release/
-npm run dist:arm64      # signed-DMG-less .dmg + update artifact (see release section)
+npm run dev
 ```
 
-## Backend configuration
+Use these Settings values:
 
-The app is intentionally not bound to any specific hosted service. Before it can log in and generate, configure a compatible backend:
-
-1. **Main process** (`src/main/index.ts`): `API_BASE_URL` / `TENANT_SN` constants, or override at runtime via environment variables:
-
-   ```bash
-   IMAGE_WORKSPACE_API_BASE_URL=https://your-backend.example.com \
-   IMAGE_WORKSPACE_TENANT_SN=your-tenant-sn \
-   npm run dev
-   ```
-
-2. **Renderer fallback** (`src/renderer/src/api.ts`): same two constants, used only when the app runs outside Electron (browser preview) — keep them in sync with step 1.
-
-The backend must implement the API protocol used by this app — see `ALLOWED_API_PATHS` in `src/main/index.ts` for the whitelisted endpoints (auth, config, providers, credits, generate, task polling/history, top-up packages/orders).
-
-## Local AI models (Image → PSD)
-
-The PSD pipeline uses three ONNX models (~417 MB total) downloaded from public mirrors (Hugging Face / jsDelivr) via `scripts/download-models.mjs`. The `build` script runs it automatically; models are gitignored and embedded into the installer via `extraResources`. If models are missing at runtime, the app falls back to Vision-compatible mode (indicated by a "兼容模式" badge).
-
-## Self-hosted auto-update
-
-No Apple Developer ID, no Squirrel.Mac — updates use a signed manifest + zip swap:
-
-1. Generate an Ed25519 keypair: `npm run gen-update-key` (prints the **public key**, writes the **private key** base64 to `update-private-key.b64`, gitignored). Import the private key into Keychain: `security add-generic-password -a "$USER" -s image-workspace-update-key -w "$(cat update-private-key.b64)"`, then delete the file and back it up offline.
-2. Paste the public key into `src/main/updater/keys.ts` (`UPDATE_PUBLIC_KEY_PEM`) and set `UPDATE_MANIFEST_URL` / `UPDATE_RELEASES_PAGE` / `EXPECTED_BUNDLE_ID` to your release repo and bundle id.
-3. Configure `RELEASE_REPO` in `scripts/release.mjs`, bump `version` in `package.json`, commit with a clean worktree.
-4. `npm run release` — builds, packages, signs. Review artifacts in `build/release/`, then `npm run release -- --publish` to tag, push and upload via `gh release create`.
-
-Never commit `update-private-key.*`; regenerating a key invalidates updates for all installed clients.
-
-## Project layout
-
-```
-src/
-  main/          Electron main process: API whitelist proxy, session/settings, updater, PSD & crop pipelines, Photopea host, native helper management
-  preload/       contextBridge exposure (window.desktop)
-  renderer/      Vue 3 UI (App.vue + feature components), api client, Photopea host page
-resources/
-  vision-helper/ VisionSegmenter.m + compiled binary (macOS Vision)
-  speech-helper/ SpeechRecognizer.m + compiled binary (macOS Speech)
-  ai-models/     ONNX models (gitignored, downloaded by script)
-  icons/         App icon
-scripts/
-  release.mjs        full release pipeline (build → package → sign → publish)
-  download-models.mjs  fetches ONNX models
-  gen-update-key.mjs    generates the Ed25519 update keypair
-  after-pack.mjs         post-pack hardening (fuses, dylib cleanup)
+```text
+API Base URL:  http://127.0.0.1:8787/v1
+API Key:       demo-local-only
+Image2 Model:  mock-image2
 ```
 
-## Security notes
+The mock server implements `/v1/models`, `/v1/images/generations`, and `/v1/images/edits`. It returns a bundled synthetic fixture so demos and screenshots never contain a real user, product, path, or credential.
 
-- Renderer runs with `contextIsolation: true`, `nodeIntegration: false`; filesystem and network access goes through a small, explicitly whitelisted IPC surface.
-- The main process only proxies a fixed allowlist of API paths, refuses cross-origin requests, and validates every IPC sender.
-- Session tokens are encrypted with the OS keychain-backed `safeStorage`.
-- Remote images, uploads, and update packages are size/SHA-256 verified; updates additionally require an Ed25519 signature.
-- Without a paid Apple Developer ID the app is unsigned: first launch may require a manual "Open Anyway" in System Settings.
+## Development
 
-## License
+```bash
+npm ci
+npm run typecheck
+npm test
+npx electron-vite build
+```
 
-MIT — see [LICENSE](LICENSE).
+`npm run build` additionally verifies the bundled local model helpers and native macOS utilities. An arm64 directory package can be built with:
+
+```bash
+npm run package:arm64
+```
+
+The app may download local model assets as part of the full build. The mock Images API never requires a model download.
+
+## Repository map
+
+```text
+src/main/                     Electron main process, secure provider bridge, local file pipeline
+src/preload/                  typed, narrow contextBridge surface
+src/renderer/src/api.ts       renderer API client with no network fallback
+src/renderer/src/App.vue      local queue, history, workbench shell
+src/renderer/src/components/ShowcaseView.vue
+examples/mock-openai-server/  no-secret local Images API demo
+docs/media/                   synthetic, privacy-safe product visuals
+```
+
+## Limitations
+
+- The first release targets OpenAI-compatible Images API semantics, not arbitrary provider SDKs.
+- Provider-specific authentication, billing, moderation, and model capabilities remain the provider’s responsibility.
+- Remote `url` responses must remain reachable long enough for the main process to download them; once saved locally, the result no longer depends on that URL.
+- Local history intentionally does not retain original reference bytes for automatic re-upload after a restart. Re-select source images when re-running a failed request.
+- Photopea requires an explicit user action and its own network service.
+
+中文提示：这是一个本机优先、自己填 Provider 的桌面工具。API Key 只发给你填写并确认的服务，图片结果会立即保存到本机；不提供账号、积分、充值和远程历史同步。
+
+## OSS readiness
+
+See [CONTRIBUTING.md](CONTRIBUTING.md), [SECURITY.md](SECURITY.md), [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md), [CHANGELOG.md](CHANGELOG.md), and the [OSS evidence checklist](docs/OSS_EVIDENCE.md). OSS demos and release notes must use synthetic fixtures and aggregate metrics only. Never attach API keys, real customer assets, signed URLs, or personal data to an Issue, pull request, release, or funding application.

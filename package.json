@@ -1,12 +1,16 @@
 {
   "name": "luk-image-workspace",
-  "version": "0.2.0",
-  "description": "AI Image Workspace — desktop image generation studio for macOS (Electron + Vue)",
+  "version": "0.3.0",
+  "description": "LUK Image Workspace — a private, local-first creative production OS for macOS",
+  "author": "LUK Image Workspace contributors",
   "private": true,
   "type": "module",
   "main": "./out/main/index.js",
   "scripts": {
     "dev": "electron-vite dev",
+    "typecheck": "vue-tsc --noEmit",
+    "test": "node --test --experimental-strip-types",
+    "demo:server": "node examples/mock-openai-server/server.mjs",
     "build:vision": "xcrun clang -fobjc-arc -O2 -mmacosx-version-min=14.0 resources/vision-helper/VisionSegmenter.m -o resources/vision-helper/bin/VisionSegmenter -framework Foundation -framework Vision -framework CoreImage -framework ImageIO -framework CoreGraphics -framework CoreVideo",
     "build:speech": "xcrun clang -fobjc-arc -O2 -mmacosx-version-min=14.0 resources/speech-helper/SpeechRecognizer.m -o resources/speech-helper/bin/SpeechRecognizer -framework Foundation -framework Speech -framework AVFoundation",
     "download:models": "node scripts/download-models.mjs",
@@ -22,24 +26,22 @@
     "onnxruntime-node": "^1.27.0",
     "sharp": "^0.35.3"
   },
-  "//dependencies": "只有主进程运行时真正 require 的原生/重型模块才放这里 —— electron-builder 只收集 production deps 进 asar。vue/lucide/qrcode 是 renderer-only，已被 vite 打进 out/，放这里会白白多打 38MB。",
+  "//dependencies": "只有主进程运行时真正 require 的原生/重型模块才放这里 —— electron-builder 只收集 production deps 进 asar。vue/lucide 是 renderer-only，已被 vite 打进 out/。",
   "devDependencies": {
     "@electron/fuses": "^2.1.3",
-    "@types/qrcode": "^1.5.6",
     "@vitejs/plugin-vue": "^6.0.2",
-    "lucide-vue-next": "^0.511.0",
-    "qrcode": "^1.5.4",
-    "vue": "^3.5.26",
     "electron": "^37.2.3",
     "electron-builder": "^26.0.12",
     "electron-vite": "^4.0.0",
+    "lucide-vue-next": "^0.511.0",
     "typescript": "^5.9.3",
     "vite": "^7.2.7",
+    "vue": "^3.5.26",
     "vue-tsc": "^3.1.8"
   },
   "build": {
     "appId": "com.luk.image-workspace",
-    "productName": "AI 图像工作台",
+    "productName": "LUK Image Workspace",
     "asar": true,
     "asarUnpack": [
       "node_modules/sharp/**/*",
@@ -100,8 +102,8 @@
       "identity": null
     },
     "dmg": {
-      "title": "AI 图像工作台 ${version}",
-      "artifactName": "AI-Image-Workspace-${version}-${arch}.${ext}"
+      "title": "LUK Image Workspace ${version}",
+      "artifactName": "LUK-Image-Workspace-${version}-${arch}.${ext}"
     }
   }
 }

@@ -29,7 +29,7 @@ import {
   type MaskPath
 } from './localCropShared'
 
-type Option = { label: string; value: string; credits?: number | null }
+type Option = { label: string; value: string }
 type Provider = {
   id: number
   label: string
@@ -37,8 +37,6 @@ type Provider = {
   sizeOptions: Option[]
   qualityOptions: Option[]
   resolutionOptions: Option[]
-  priceMatrix?: Record<string, Record<string, Record<string, number>>>
-  referenceImageCredits?: number
 }
 
 export type LocalCropSubmission = {
@@ -194,21 +192,6 @@ const selectedSizeLabel = computed(() => activeProvider.value?.sizeOptions.find(
 const selectedQualityLabel = computed(() => activeProvider.value?.qualityOptions.find((item) => item.value === quality.value)?.label || quality.value)
 const currentResolutionOptions = computed(() => activeProvider.value?.resolutionOptions || [])
 const currentQualityOptions = computed(() => activeProvider.value?.qualityOptions || [])
-
-const unitCost = computed(() => {
-  const provider = activeProvider.value
-  const matrixCost = Number(provider?.priceMatrix?.[size.value]?.[resolution.value]?.[quality.value])
-  const base = Number.isFinite(matrixCost) && matrixCost > 0
-    ? matrixCost
-    : Number(
-        currentResolutionOptions.value.find((item) => item.value === resolution.value)?.credits
-        ?? currentQualityOptions.value.find((item) => item.value === quality.value)?.credits
-        ?? provider?.sizeOptions.find((item) => item.value === size.value)?.credits
-        ?? 49
-      )
-  const refs = cropProducts.value.length * Number(provider?.referenceImageCredits || 0)
-  return Math.max(0, base) + refs
-})
 
 function resolutionMaxIndex(): number {
   return Math.max(0, currentResolutionOptions.value.length - 1)
@@ -695,7 +678,8 @@ async function submit(): Promise<void> {
         cropBox: { x: cropBox.value.x, y: cropBox.value.y, size: cropBox.value.size },
         hasMask: maskPaths.value.some((path) => !path.isEraser && path.points.length > 0),
         maskPaths: cloneMaskPaths(maskPaths.value),
-        // 仅记录远端 URL，供历史复用回填产品槽；本地临时 id 无意义
+        // Only an explicitly remote preview can be reused as metadata; local
+        // source ids are intentionally not persisted as remote URLs.
         productSources: cropProducts.value.map((item) => item.previewDataUrl).filter((url) => /^https?:\/\//i.test(url)).slice(0, 3)
       }
     })
@@ -971,7 +955,7 @@ onBeforeUnmount(() => {
         <div class="composer-tray-left">
           <span v-if="pickerError" class="crop-error">{{ pickerError }}</span>
           <span v-else-if="voiceStatus" class="voice-status" role="status" aria-live="polite">{{ voiceStatus }}</span>
-          <span v-else>预计 {{ unitCost }} 积分</span>
+          <span v-else>1 local edit request · provider billed separately</span>
         </div>
         <span>⌘ ↵ 生成</span>
       </div>

@@ -3,15 +3,14 @@
 declare global {
   type DesktopSettings = {
     outputDirectory: string
-    autoDownload: boolean
     theme: 'dark' | 'light' | 'system'
-    greetingName: string
     generationProviderId: number
     generationSize: string
     generationQuality: string
     generationResolution: string
     generationCount: number
-    siteUrl: string
+    providerBaseUrl: string
+    imageModel: string
   }
 
   type ModelStoreStatus = {
@@ -43,12 +42,21 @@ declare global {
       version: string
       platform: string
       arch: string
-      devFakeSession?: boolean
     }>
     getSettings: () => Promise<DesktopSettings>
-    getSession: () => Promise<{ token: string; user: Record<string, unknown> } | null>
-    saveSession: (value: { token: string; user: Record<string, unknown> }) => Promise<boolean>
-    clearSession: () => Promise<boolean>
+    getProviderConfig: () => Promise<{
+      baseUrl: string
+      model: string
+      hasApiKey: boolean
+      maskedApiKey: string
+    }>
+    saveProviderConfig: (value: {
+      baseUrl: string
+      model: string
+      apiKey?: string
+      clearApiKey?: boolean
+    }) => Promise<boolean>
+    testProviderConnection: () => Promise<boolean>
     saveSettings: (value: DesktopSettings) => Promise<DesktopSettings>
     requestMicrophoneAccess: () => Promise<boolean>
     chooseOutputDirectory: () => Promise<string | null>
@@ -65,17 +73,17 @@ declare global {
       sceneImageId?: string
       scenePath?: string
       patchUrl: string
+      patchPath?: string
       cropBox: { x: number; y: number; size: number }
       maskPaths?: Array<{ points: Array<{ x: number; y: number }>; brushSize: number; isEraser: boolean }>
     }) => Promise<{ path: string; previewDataUrl: string; width: number; height: number; size: number }>
     readLocalCropPreview: (filePath: string) => Promise<{ previewDataUrl: string }>
+    readSavedResultPreview: (filePath: string) => Promise<{ previewDataUrl: string }>
     findLocalCropComposite: (taskId: number) => Promise<{ path: string; width?: number; height?: number } | null>
     apiRequest: (payload: {
-      path: string
-      method?: 'GET' | 'POST'
-      token?: string
+      operation: 'models' | 'generate' | 'edit'
       json?: Record<string, unknown>
-      file?: { name: string; type: string; bytes: ArrayBuffer }
+      files?: Array<{ name: string; type: string; bytes: ArrayBuffer }>
     }) => Promise<{ status: number; body: unknown }>
     downloadResult: (payload: { url: string; taskId: number; index: number }) =>
       Promise<{ path: string; sha256: string; size: number }>

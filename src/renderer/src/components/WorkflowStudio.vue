@@ -17,10 +17,10 @@ import {
 } from 'lucide-vue-next'
 import LocalCropPanel, { type LocalCropDraft, type LocalCropSubmission } from './LocalCropPanel.vue'
 import ResolutionEnergyCanvas from './ResolutionEnergyCanvas.vue'
-import { api, ApiError } from '../api'
+import { api } from '../api'
 
 export type WorkflowKind = 'detailV4' | 'replication' | 'batchSku' | 'crop' | 'sellVideo'
-type Option = { label: string; value: string; credits?: number | null }
+type Option = { label: string; value: string }
 type Provider = {
   id: number
   label: string
@@ -28,8 +28,6 @@ type Provider = {
   sizeOptions: Option[]
   qualityOptions: Option[]
   resolutionOptions: Option[]
-  priceMatrix?: Record<string, Record<string, Record<string, number>>>
-  referenceImageCredits?: number
 }
 type WorkflowItem = { prompt: string; sources: DesktopSelectedImage[] }
 export type WorkflowSubmission = {
@@ -135,28 +133,6 @@ const selectedQualityLabel = computed(() => activeProvider.value?.qualityOptions
 const currentResolutionOptions = computed(() => activeProvider.value?.resolutionOptions || [])
 const currentQualityOptions = computed(() => activeProvider.value?.qualityOptions || [])
 
-/** 单任务积分 × 任务数（每任务 count=1；参考图加价按每个任务的 sources 张数） */
-const unitCost = computed(() => {
-  const provider = activeProvider.value
-  const matrixCost = Number(provider?.priceMatrix?.[size.value]?.[resolution.value]?.[quality.value])
-  const base = Number.isFinite(matrixCost) && matrixCost > 0
-    ? matrixCost
-    : Number(
-        currentResolutionOptions.value.find((item) => item.value === resolution.value)?.credits
-        ?? currentQualityOptions.value.find((item) => item.value === quality.value)?.credits
-        ?? provider?.sizeOptions.find((item) => item.value === size.value)?.credits
-        ?? 49
-      )
-  // 详情：主图 + 风格；SKU：商品+模板；复刻：参考+商品
-  let refCount = 1
-  if (props.kind === 'batchSku') refCount = 2 // 模板 + 商品
-  else if (props.kind === 'detailV4') refCount = 1 + filledDetailStyles.value.length
-  else refCount = 1 + filledReplicationProducts.value.length
-  refCount = Math.min(4, refCount)
-  const refs = refCount * Number(provider?.referenceImageCredits || 0)
-  return Math.max(0, base) + refs
-})
-const totalCost = computed(() => unitCost.value * Math.max(0, selectionCount.value))
 const canSubmitReplication = computed(() => replicationFilledCount.value > 0 && !props.submitting)
 const canSubmitBatchSku = computed(() => skuFilledCount.value > 0 && Boolean(skuTemplate.value) && !props.submitting)
 const canSubmitDetail = computed(() =>
@@ -677,11 +653,7 @@ async function optimizeSellingPoints(): Promise<void> {
     if (!content) throw new Error('优化结果为空')
     sellingPoints.value = content.slice(0, 400)
   } catch (error) {
-    if (error instanceof ApiError && error.authExpired) {
-      pickerError.value = '登录已过期，请重新登录后再优化'
-    } else {
-      pickerError.value = error instanceof Error ? error.message : '优化失败，请稍后再试'
-    }
+    pickerError.value = error instanceof Error ? error.message : '优化失败，请稍后再试'
   } finally {
     optimizingPoints.value = false
   }
@@ -1064,8 +1036,8 @@ function onLocalCropBeginFailed(message: string): void {
         <div class="composer-tray-left">
           <span v-if="pickerError" class="rep-error">{{ pickerError }}</span>
           <span v-else-if="voiceStatus" class="voice-status" role="status" aria-live="polite">{{ voiceStatus }}</span>
-          <span v-else-if="selectionCount > 0">预计 {{ totalCost }} 积分 · {{ selectionCount }} 个任务</span>
-          <span v-else>添加参考图后显示预计积分</span>
+          <span v-else-if="selectionCount > 0">{{ selectionCount }} local requests · provider billed separately</span>
+          <span v-else>添加参考图后可提交本地队列</span>
         </div>
         <span>⌘ ↵ 生成</span>
       </div>
@@ -1330,9 +1302,9 @@ function onLocalCropBeginFailed(message: string): void {
         <div class="composer-tray-left">
           <span v-if="pickerError" class="rep-error">{{ pickerError }}</span>
           <span v-else-if="voiceStatus" class="voice-status" role="status" aria-live="polite">{{ voiceStatus }}</span>
-          <span v-else-if="selectionCount > 0 && skuTemplate">预计 {{ totalCost }} 积分 · {{ selectionCount }} 个任务</span>
+          <span v-else-if="selectionCount > 0 && skuTemplate">{{ selectionCount }} local requests · provider billed separately</span>
           <span v-else-if="selectionCount > 0">已选 {{ selectionCount }} 个 SKU · 还需模板图</span>
-          <span v-else>添加 SKU 商品图与模板后显示预计积分</span>
+          <span v-else>添加 SKU 商品图与模板后可提交</span>
         </div>
         <span>⌘ ↵ 生成</span>
       </div>
@@ -1638,7 +1610,7 @@ function onLocalCropBeginFailed(message: string): void {
         <div class="composer-tray-left">
           <span v-if="pickerError" class="rep-error">{{ pickerError }}</span>
           <span v-else-if="voiceStatus" class="voice-status" role="status" aria-live="polite">{{ voiceStatus }}</span>
-          <span v-else-if="selectionCount > 0">预计 {{ totalCost }} 积分 · {{ selectionCount }} 个任务</span>
+          <span v-else-if="selectionCount > 0">{{ selectionCount }} local requests · provider billed separately</span>
           <span v-else-if="!detailProduct">先上传商品主图，再生成场景方案</span>
           <span v-else-if="!plans.length">生成 8 组方案后可批量出图</span>
           <span v-else>请至少启用一组场景方案</span>

@@ -34,15 +34,12 @@ import {
   LayoutTemplate,
   Layers3,
   LoaderCircle,
-  LogIn,
-  LogOut,
   Mic,
   MoreHorizontal,
   Package,
   PanelLeft,
   PanelRight,
   Plus,
-  QrCode,
   RefreshCw,
   RotateCcw,
   ScanLine,
@@ -51,15 +48,14 @@ import {
   Sparkles,
   Trash2,
   UploadCloud,
-  Wallet,
   WandSparkles,
   Wrench,
   X
 } from 'lucide-vue-next'
-import { absoluteAssetUrl, api, ApiError, getStoredUser, getToken, setDevKeepSession, setStoredUser, setToken, type UsageOverview, type UserInfo } from './api'
-import { toDataURL as qrCodeToDataURL } from 'qrcode'
+import { api, type GeneratedImage, type ImageRequestFile, type ProviderConfig } from './api'
 import WorkflowStudio, { type WorkflowSubmission } from './components/WorkflowStudio.vue'
 import TurntableStudio from './components/TurntableStudio.vue'
+import ShowcaseView from './components/ShowcaseView.vue'
 import ResolutionEnergyCanvas from './components/ResolutionEnergyCanvas.vue'
 import PsdMaskEditor, { type PsdMaskDraft } from './components/PsdMaskEditor.vue'
 import {
@@ -79,6 +75,7 @@ type NavigationEntry = NavigationLeaf | NavigationGroup
 type TaskStatus = 'queued' | 'running' | 'success' | 'failed'
 type TaskFilter = 'all' | 'running' | 'attention' | 'completed'
 type ActiveView =
+  | 'showcase'
   | 'quick'
   | 'detail'
   | 'detailV4'
@@ -137,22 +134,35 @@ type ProviderOption = {
   sizeOptions: ParameterOption[]
   qualityOptions: ParameterOption[]
   resolutionOptions: ParameterOption[]
-  priceMatrix: PriceMatrix
-  referenceImageCredits: number
 }
 
 type ParameterOption = {
   label: string
   value: string
-  credits: number | null
 }
-
-type PriceMatrix = Record<string, Record<string, Record<string, number>>>
 
 type SavedFile = {
   url: string
   path: string
   sha256: string
+}
+
+type UsageOverview = {
+  daily: Array<{ date: string; tasks: number; images: number; resolutions?: Record<'1K' | '2K' | '4K' | '历史', number> }>
+  ranges?: Record<'all' | '30d' | '7d', {
+    tasks: number
+    images: number
+    active_days: number
+    current_streak: number
+    longest_streak: number
+    peak_hour: number | null
+    top_ratio: string
+    hour_histogram: number[]
+    resolution_breakdown?: Record<'1K' | '2K' | '4K' | '历史', { tasks: number; images: number }>
+  }>
+  hour_histogram: number[]
+  first_task_time: number
+  total_tasks: number
 }
 
 type LocalCropMaskPoint = { x: number; y: number }
@@ -224,14 +234,18 @@ type PsdTask = {
   error?: string
 }
 
-const TASKS_KEY = 'yfq_desktop_tasks_v1'
-const PSD_TASKS_KEY = 'yfq_desktop_psd_tasks_v1'
-const HIDDEN_TASKS_KEY = 'yfq_desktop_hidden_task_ids_v1'
+const TASKS_KEY = 'luk_image_workspace_tasks_v1'
+const PSD_TASKS_KEY = 'luk_image_workspace_psd_tasks_v1'
+const HIDDEN_TASKS_KEY = 'luk_image_workspace_hidden_task_ids_v1'
+const LEGACY_TASKS_KEY = 'yfq_desktop_tasks_v1'
+const LEGACY_PSD_TASKS_KEY = 'yfq_desktop_psd_tasks_v1'
+const LEGACY_HIDDEN_TASKS_KEY = 'yfq_desktop_hidden_task_ids_v1'
 const hiddenTaskIds = ref<Set<number>>(loadHiddenTaskIdsFromStorage())
 
 function loadHiddenTaskIdsFromStorage(): Set<number> {
   try {
-    const raw = JSON.parse(localStorage.getItem(HIDDEN_TASKS_KEY) || '[]') as number[]
+    const stored = localStorage.getItem(HIDDEN_TASKS_KEY) ?? localStorage.getItem(LEGACY_HIDDEN_TASKS_KEY) ?? '[]'
+    const raw = JSON.parse(stored) as number[]
     return new Set((Array.isArray(raw) ? raw : []).map(Number).filter((id) => id > 0))
   } catch {
     return new Set()
@@ -240,6 +254,7 @@ function loadHiddenTaskIdsFromStorage(): Set<number> {
 
 function persistHiddenTaskIds(): void {
   localStorage.setItem(HIDDEN_TASKS_KEY, JSON.stringify(Array.from(hiddenTaskIds.value).slice(-800)))
+  localStorage.removeItem(LEGACY_HIDDEN_TASKS_KEY)
 }
 
 function hideTaskIds(ids: number[]): void {
@@ -261,10 +276,6 @@ function purgeHiddenTasksFromList(list: LocalTask[]): LocalTask[] {
 }
 
 const MAX_REFERENCES = 4
-const POLL_DELAY = 5000
-const MAX_POLLS = 240
-const HISTORY_PAGE_SIZE = 50
-const HISTORY_MAX_PAGES = 100
 
 const plannedViews = [
   { id: 'detailV4' as const, label: '整套详情', icon: LayoutTemplate, description: '先生成 8 组可编辑场景方案，确认后再批量生成详情图。' },
@@ -332,7 +343,7 @@ function toggleNavigationGroup(id: NavigationGroupId): void {
 }
 
 // 真实值由 desktop:get-info 在 loadDesktopState() 里覆盖，这里只是首帧占位
-const appInfo = reactive({ name: 'AI 图像工作台', version: '', arch: '' })
+const appInfo = reactive({ name: 'LUK Image Workspace', version: '', arch: '' })
 const activeView = ref<ActiveView>('quick')
 const navMode = ref<NavMode>('creation')
 const primaryModeTransition = ref<'quick' | 'crop' | null>(null)
@@ -347,19 +358,17 @@ const crossMotion = new MotionBatch()
 const viewHistory = ref<ActiveView[]>([])
 let navigatingBack = false
 const settings = reactive<DesktopSettings>({
-  outputDirectory: '~/Documents/AI-Image-Workspace',
-  autoDownload: true,
+  outputDirectory: '~/Documents/LUK-Image-Workspace',
   theme: 'light',
-  greetingName: '',
   generationProviderId: 0,
   generationSize: '1:1',
   generationQuality: 'low',
   generationResolution: '1K',
   generationCount: 1,
-  siteUrl: ''
+  providerBaseUrl: '',
+  imageModel: ''
 })
-const user = ref<UserInfo | null>(getStoredUser())
-const brandName = ref('AI 图像工作台')
+const brandName = ref('LUK Image Workspace')
 const createMode = ref<CreateMode>('text')
 const prompt = ref('')
 const references = ref<ReferenceImage[]>([])
@@ -369,11 +378,7 @@ const selectedSize = ref('1:1')
 const quality = ref('low')
 const resolution = ref('1K')
 const count = ref(1)
-const fallbackUnitCost = ref(49)
-const loginAgreementRequired = ref(false)
 const tasks = ref<LocalTask[]>([])
-const historySyncing = ref(false)
-const historySyncError = ref('')
 const historyVisibleCount = ref(120)
 const submitting = ref(false)
 const workflowSubmitting = ref(false)
@@ -381,41 +386,29 @@ const cropDraft = ref<LocalCropDraftState | null>(null)
 const cropReuseBusy = ref(false)
 const settingsOpen = ref(false)
 const manualOpen = ref(false)
-const loginOpen = ref(false)
-// 启动时会话尚未恢复完成，此时既不显示工作台也不显示登录页，避免闪屏
-const sessionRestoring = ref(true)
+const appBooting = ref(true)
+const providerConfig = ref<ProviderConfig>({ baseUrl: '', model: '', hasApiKey: false, maskedApiKey: '' })
+const providerKeyDraft = ref('')
+const providerStatus = ref<'idle' | 'saving' | 'testing' | 'connected' | 'error'>('idle')
+const providerError = ref('')
+const showcaseSeenKey = 'luk_image_workspace_showcase_seen_v1'
+const showcaseOpen = ref(localStorage.getItem(showcaseSeenKey) !== '1')
 
-type RechargePackage = { id: number; name: string; price: string; credits: number; draw_count: number }
-const rechargeOpen = ref(false)
-const rechargePackages = ref<RechargePackage[]>([])
-const rechargeLoading = ref(false)
-const rechargeError = ref('')
-const rechargeCreating = ref(false)
-const rechargeQrDataUrl = ref('')
-const rechargeActivePackage = ref<RechargePackage | null>(null)
-const rechargePaid = ref(false)
-let rechargePollTimer: number | null = null
-const loginSubmitting = ref(false)
-const loginError = ref('')
-const loginMode = ref<'password' | 'wechat'>('password')
-const wechatLoginAvailable = ref(false)
-const wechatQrDataUrl = ref('')
-const wechatQrState = ref('')
-const wechatQrLoading = ref(false)
-const wechatLoginError = ref('')
-const wechatQrExpired = ref(false)
-const pendingSubmit = ref(false)
+function enterWorkspace(): void {
+  localStorage.setItem(showcaseSeenKey, '1')
+  showcaseOpen.value = false
+}
+
+function clearLegacyAuthStorage(): void {
+  for (const key of ['image_workspace_token', 'image_workspace_user', 'yfq_token', 'yfq_user', 'luk_image_workspace_session']) {
+    localStorage.removeItem(key)
+  }
+}
 /** 点击生成后立刻占位的临时任务（负数 id），提交成功后替换为真实任务 */
 const preparingTaskId = ref<number | null>(null)
 const globalMessage = ref('')
 const globalError = ref('')
 const inputRef = ref<HTMLInputElement | null>(null)
-const pollTimers = new Map<number, number>()
-const activePolls = new Set<number>()
-let wechatPollTimer: number | null = null
-const WECHAT_POLL_DELAY = 2500
-const WECHAT_POLL_MAX = 220
-const activeDownloads = new Set<string>()
 const selectedPsdImage = ref<DesktopSelectedImage | null>(null)
 const psdTasks = ref<PsdTask[]>([])
 const psdEngine = ref<{ ready: boolean; missing: string[] } | null>(null)
@@ -431,13 +424,18 @@ const psdSettings = reactive({ autoExport: true, writeLayerMasks: true, subjectP
 /** 点击开始分层后展开右侧状态栏；有历史任务时也会显示 */
 const psdRailOpen = ref(false)
 /** 提交生图后自动拉出的右侧历史记录栏；可手动收起和打开 */
-const HISTORY_RAIL_WIDTH_KEY = 'yfq_history_rail_width_v2'
+const HISTORY_RAIL_WIDTH_KEY = 'luk_image_workspace_history_rail_width_v1'
+const LEGACY_HISTORY_RAIL_WIDTH_KEY = 'yfq_history_rail_width_v2'
 const HISTORY_RAIL_MIN_WIDTH = 280
 const HISTORY_RAIL_MAX_WIDTH = 460
 const HISTORY_RAIL_DEFAULT_WIDTH = 385
 // 每次启动只显示中间工作区；右栏只在用户手动打开或提交任务后出现。
 const historyRailOpen = ref(false)
-const storedHistoryRailWidthRaw = localStorage.getItem(HISTORY_RAIL_WIDTH_KEY)
+const storedHistoryRailWidthRaw = localStorage.getItem(HISTORY_RAIL_WIDTH_KEY) ?? localStorage.getItem(LEGACY_HISTORY_RAIL_WIDTH_KEY)
+if (storedHistoryRailWidthRaw !== null && localStorage.getItem(HISTORY_RAIL_WIDTH_KEY) === null) {
+  localStorage.setItem(HISTORY_RAIL_WIDTH_KEY, storedHistoryRailWidthRaw)
+  localStorage.removeItem(LEGACY_HISTORY_RAIL_WIDTH_KEY)
+}
 const storedHistoryRailWidth = storedHistoryRailWidthRaw === null ? Number.NaN : Number(storedHistoryRailWidthRaw)
 const historyRailWidth = ref(Number.isFinite(storedHistoryRailWidth)
   ? Math.max(HISTORY_RAIL_MIN_WIDTH, Math.min(HISTORY_RAIL_MAX_WIDTH, storedHistoryRailWidth))
@@ -478,6 +476,7 @@ function syncHistoryRailToViewport(): void {
   if (nextWidth === historyRailWidth.value) return
   historyRailWidth.value = nextWidth
   localStorage.setItem(HISTORY_RAIL_WIDTH_KEY, String(nextWidth))
+  localStorage.removeItem(LEGACY_HISTORY_RAIL_WIDTH_KEY)
 }
 
 function onHistoryRailPointerMove(event: PointerEvent): void {
@@ -493,6 +492,7 @@ function finishHistoryRailResize(): void {
   window.removeEventListener('pointerup', finishHistoryRailResize)
   window.removeEventListener('pointercancel', finishHistoryRailResize)
   localStorage.setItem(HISTORY_RAIL_WIDTH_KEY, String(historyRailWidth.value))
+  localStorage.removeItem(LEGACY_HISTORY_RAIL_WIDTH_KEY)
 }
 
 function startHistoryRailResize(event: PointerEvent): void {
@@ -510,6 +510,7 @@ function startHistoryRailResize(event: PointerEvent): void {
 function nudgeHistoryRailWidth(delta: number): void {
   historyRailWidth.value = clampHistoryRailWidth(historyRailWidth.value + delta)
   localStorage.setItem(HISTORY_RAIL_WIDTH_KEY, String(historyRailWidth.value))
+  localStorage.removeItem(LEGACY_HISTORY_RAIL_WIDTH_KEY)
 }
 const psdMaskEditor = ref<{
   open: boolean
@@ -522,7 +523,6 @@ const usage = ref<UsageOverview | null>(null)
 const usageRange = ref<'all' | '30d' | '7d'>('all')
 const usageTab = ref<'overview' | 'images'>('overview')
 const usageSelectedDate = ref('')
-const usedCredits = ref(0)
 const previewImage = ref<{ src: string; name: string; task?: LocalTask } | null>(null)
 const promptCopied = ref(false)
 const imageCopied = ref(false)
@@ -577,7 +577,7 @@ const featureGuides = [
     title: '一键带货转台',
     icon: Clapperboard,
     summary: '一张商品主图生成 8 个环绕视角，可旋转预览并导出 WebM 短视频。',
-    steps: ['上传 1 张白底商品主图，可选 2 张辅助参考', '核对线路与预计积分（约单次价 × 8）', '提交后等待 8 个视角出图', '在预览区旋转查看，需要时导出 WebM']
+    steps: ['上传 1 张白底商品主图，可选 2 张辅助参考', '确认 Provider、质量与画面比例', '提交后等待 8 个视角出图', '在预览区旋转查看，需要时导出 WebM']
   }
 ]
 const activePlaceholder = computed(() => {
@@ -609,40 +609,18 @@ async function clearFailedTasks(): Promise<void> {
   }
   clearingFailed.value = true
   try {
-    if (getToken()) {
-      try {
-        await api.deleteFailedTasks()
-      } catch (error) {
-        // 服务端清理失败时仍做本地隐藏，避免「删了又回来」
-        showError(error, '服务端清理失败，已先在本机隐藏')
-      }
-    }
     hideTaskIds(failedTasks.map((task) => task.id))
     tasks.value = tasks.value.filter((task) => task.status !== 'failed')
     persistTasks()
     if (taskDetail.value?.status === 'failed') taskDetail.value = null
-    showMessage(`已清理 ${failedTasks.length} 条失败任务`)
+    showMessage(`已从本机清理 ${failedTasks.length} 条失败任务`)
   } finally {
     clearingFailed.value = false
   }
 }
 
-function openSiteUrl(): void {
-  openPopover.value = ''
-  const url = settings.siteUrl.trim()
-  if (!url) {
-    settingsOpen.value = true
-    showMessage('先在设置里填写网站地址')
-    return
-  }
-  window.open(url, '_blank', 'noopener,noreferrer')
-}
-
 function openTaskDetail(task: LocalTask): void {
   taskDetail.value = task
-  if (task.status === 'queued' || task.status === 'running') {
-    void pollTask(task.id, 0)
-  }
 }
 
 function closeTaskDetail(): void {
@@ -702,7 +680,6 @@ function activateNavigation(id: ActiveView | 'folder'): void {
     return
   }
   activeView.value = id
-  if (id === 'history') void syncTaskHistory()
 }
 
 /*
@@ -874,7 +851,6 @@ function navigateBack(): void {
   navigatingBack = true
   navMode.value = navModeForView(previous)
   activeView.value = previous
-  if (previous === 'history') void syncTaskHistory()
 }
 
 function toggleSidebar(): void {
@@ -943,7 +919,7 @@ function scheduleSidebarPreviewClose(): void {
   if (sidebarPreviewTimer !== null) window.clearTimeout(sidebarPreviewTimer)
   sidebarPreviewTimer = window.setTimeout(() => {
     sidebarPreviewTimer = null
-    if (openPopover.value !== 'account') closeSidebarPreview()
+    if (openPopover.value !== 'workspace') closeSidebarPreview()
   }, 180)
 }
 
@@ -988,9 +964,7 @@ function cancelSidebarDock(): void {
   sidebarDockCommitRaf = null
 }
 
-const loginForm = reactive({ account: '', password: '', agreement: true })
-
-const isLoggedIn = computed(() => Boolean(user.value) && Boolean(getToken()))
+const isConfigured = computed(() => Boolean(providerConfig.value.baseUrl && providerConfig.value.model && providerConfig.value.hasApiKey))
 const runningCount = computed(() => tasks.value.filter((task) => task.status === 'queued' || task.status === 'running').length)
 /** 右侧历史栏：与历史记录页共用同一批最近任务 */
 const railTasks = computed(() => {
@@ -1050,7 +1024,7 @@ function ratioFromSize(size?: string): number {
 }
 
 // 局部裁切任务的 resultImages 理想态是 [拼合预览 data:, ...裁切小图]（见 maybeCompositeLocalCrop）。
-// 拼合图才是作品；persist 会剥掉 data:，恢复前若误用 slice(0,1) 会把远端裁切小图当成作品。
+// 拼合图才是作品；persist 会剥掉 data:，恢复前若误用 slice(0,1) 会把裁切补丁图当成作品。
 function galleryImages(task: LocalTask): string[] {
   if (!isLocalCropTask(task)) return task.resultImages
   const first = task.resultImages[0]
@@ -1061,7 +1035,7 @@ function galleryImages(task: LocalTask): string[] {
   if (task.localCropMeta?.compositePath || task.savedFiles.some((file) => String(file.url || '').startsWith('local-crop-composite://'))) {
     return []
   }
-  // 历史同步后丢了拼合元数据时，同样不要把 1:1 补丁图当作品
+  // 本地历史缺少拼合元数据时，同样不要把 1:1 补丁图当作品
   return []
 }
 
@@ -1139,10 +1113,7 @@ const GREETING_POOL: Array<{ zh: string; en: string }> = [
   { zh: '沉住气，力量藏在安稳里', en: 'In quietness lies your strength.' }
 ]
 const greetingPhrase = GREETING_POOL[Math.floor(Math.random() * GREETING_POOL.length)]
-const greeting = computed(() => {
-  const name = settings.greetingName.trim()
-  return name ? `${name}，${greetingPhrase.zh}` : greetingPhrase.zh
-})
+const greeting = computed(() => greetingPhrase.zh)
 const greetingEnglish = computed(() => greetingPhrase.en)
 
 /** 首页「为你推荐」功能池：每次打开随机抽几条，hover 时输入框预览示例文案，点进对应工作流 */
@@ -1161,7 +1132,7 @@ const HERO_IDEA_POOL: Array<{
   { id: 'detailV4', label: '整套详情', hint: '先出场景方案，再批量生成详情图', icon: LayoutTemplate, tag: '批量', preview: '先生成 8 组可编辑的场景方案，确认后一键产出整套商品详情图。' },
   { id: 'sellVideo', label: '一键带货视频', hint: '8 视角环绕预览并导出短视频', icon: Clapperboard, tag: '工具', preview: '用商品主图生成环绕视角，拖动预览并导出 WebM。' },
   { id: 'promptAssistant', label: '提示词助手', hint: '拆解需求，写出更好用的提示词', icon: Sparkles, tag: '工具', preview: '把模糊的想法拆解成一条更好用的生图提示词。' },
-  { id: 'history', label: '历史记录', hint: '同步网页、小程序与 Mac 全部出图', icon: History, tag: '记录', preview: '同步查看当前账户在网页、小程序和 Mac 生成的全部图片。' }
+  { id: 'history', label: '历史记录', hint: '查看这台 Mac 保存的本地产物', icon: History, tag: '记录', preview: '只查看这台 Mac 上保存的图片、任务参数与本地文件状态。' }
 ]
 
 const heroIdeas = ref<typeof HERO_IDEA_POOL>([])
@@ -1194,31 +1165,14 @@ const activeProvider = computed(() => providers.value.find((item) => item.id ===
 const currentSizeOptions = computed(() => activeProvider.value?.sizeOptions || [])
 const currentQualityOptions = computed(() => activeProvider.value?.qualityOptions || [])
 const currentResolutionOptions = computed(() => activeProvider.value?.resolutionOptions || [])
-const unitCost = computed(() => {
-  const provider = activeProvider.value
-  const matrixCost = Number(provider?.priceMatrix?.[selectedSize.value]?.[resolution.value]?.[quality.value])
-  const base = Number.isFinite(matrixCost) && matrixCost > 0
-    ? matrixCost
-    : Number(
-        currentResolutionOptions.value.find((item) => item.value === resolution.value)?.credits
-        ?? currentQualityOptions.value.find((item) => item.value === quality.value)?.credits
-        ?? currentSizeOptions.value.find((item) => item.value === selectedSize.value)?.credits
-        ?? fallbackUnitCost.value
-      )
-  const referencesCost = createMode.value === 'image'
-    ? references.value.length * Number(provider?.referenceImageCredits || 0)
-    : 0
-  return Math.max(0, base || fallbackUnitCost.value) + referencesCost
-})
-const totalCost = computed(() => unitCost.value * count.value)
 const canSubmit = computed(() => {
   if (submitting.value) return false
   if (createMode.value === 'text') return Boolean(prompt.value.trim())
   return references.value.length > 0
 })
 const showPsdTaskTabs = computed(() => psdTasks.value.length > 5)
-const accountInitial = computed(() => (user.value?.nickname || '用').trim().slice(0, 1).toUpperCase())
-const membershipLabel = computed(() => (user.value?.isMember ? 'Annual Member' : 'Free'))
+const workspaceInitial = computed(() => 'L')
+const providerMenuLabel = computed(() => isConfigured.value ? 'Provider ready' : 'Configure provider')
 const selectedSizeLabel = computed(() => currentSizeOptions.value.find((item) => item.value === selectedSize.value)?.label || selectedSize.value)
 const selectedProviderLabel = computed(() => activeProvider.value?.label || '线路')
 const selectedQualityLabel = computed(() => currentQualityOptions.value.find((item) => item.value === quality.value)?.label || quality.value)
@@ -1336,7 +1290,7 @@ function togglePopover(name: string): void {
   openPopover.value = openPopover.value === name ? '' : name
 }
 
-function pickOption(name: 'account' | 'provider' | 'size' | 'quality' | 'count', apply: () => void): void {
+function pickOption(name: 'provider' | 'size' | 'quality' | 'count', apply: () => void): void {
   apply()
   openPopover.value = ''
   if (name === 'provider') syncProviderSelections()
@@ -1373,8 +1327,7 @@ const usageTotals = computed(() => {
     return {
       tasks: Number(usageRangeSummary.value.tasks || 0),
       images: Number(usageRangeSummary.value.images || 0),
-      activeDays: Number(usageRangeSummary.value.active_days || 0),
-      credits: Number(usageRangeSummary.value.credits || 0)
+      activeDays: Number(usageRangeSummary.value.active_days || 0)
     }
   }
   let tasksSum = 0
@@ -1383,7 +1336,7 @@ const usageTotals = computed(() => {
     tasksSum += row.tasks
     imagesSum += row.images
   }
-  return { tasks: tasksSum, images: imagesSum, activeDays: usageFiltered.value.filter((row) => row.tasks > 0).length, credits: usedCredits.value }
+  return { tasks: tasksSum, images: imagesSum, activeDays: usageFiltered.value.filter((row) => row.tasks > 0).length }
 })
 const usageStreaks = computed(() => {
   if (usageRangeSummary.value) {
@@ -1499,15 +1452,56 @@ function dateKey(date: Date): string {
   return `${date.getFullYear()}-${month}-${day}`
 }
 
-async function loadOverview(): Promise<void> {
-  if (!getToken()) {
-    usage.value = null
-    return
+function rebuildLocalUsage(): void {
+  const days = new Map<string, { date: string; tasks: number; images: number; resolutions: Record<'1K' | '2K' | '4K' | '历史', number> }>()
+  for (let index = 0; index < 365; index += 1) {
+    const date = dateKey(new Date(Date.now() - (364 - index) * 86400000))
+    days.set(date, { date, tasks: 0, images: 0, resolutions: { '1K': 0, '2K': 0, '4K': 0, '历史': 0 } })
   }
-  try {
-    usage.value = await api.userOverview()
-  } catch {
-    usage.value = null
+  for (const task of tasks.value) {
+    const date = dateKey(new Date(task.createdAt))
+    const row = days.get(date) || { date, tasks: 0, images: 0, resolutions: { '1K': 0, '2K': 0, '4K': 0, '历史': 0 } }
+    row.tasks += 1
+    const imageCount = task.status === 'success' ? Math.max(1, task.resultImages.length || task.savedFiles.length) : 0
+    row.images += imageCount
+    const resolution = task.resolution === '2K' || task.resolution === '4K' ? task.resolution : '1K'
+    row.resolutions[resolution] += imageCount
+    days.set(date, row)
+  }
+  const daily = Array.from(days.values())
+  const makeRange = (range: 'all' | '30d' | '7d') => {
+    const cutoff = range === 'all' ? '' : dateKey(new Date(Date.now() - (range === '30d' ? 29 : 6) * 86400000))
+    const selected = cutoff ? daily.filter((row) => row.date >= cutoff) : daily
+    const rangeTasks = tasks.value.filter((task) => !cutoff || dateKey(new Date(task.createdAt)) >= cutoff)
+    const activeDays = selected.filter((row) => row.tasks > 0).length
+    const histogram = new Array(24).fill(0)
+    rangeTasks.forEach((task) => { histogram[new Date(task.createdAt).getHours()] += 1 })
+    const peak = Math.max(...histogram)
+    const topRatio = rangeTasks.reduce((counts, task) => {
+      if (task.size) counts.set(task.size, (counts.get(task.size) || 0) + 1)
+      return counts
+    }, new Map<string, number>())
+    let top = ''
+    let topCount = 0
+    topRatio.forEach((count, ratio) => { if (count > topCount) { top = ratio; topCount = count } })
+    return {
+      tasks: selected.reduce((sum, row) => sum + row.tasks, 0),
+      images: selected.reduce((sum, row) => sum + row.images, 0),
+      active_days: activeDays,
+      current_streak: 0,
+      longest_streak: 0,
+      peak_hour: peak > 0 ? histogram.indexOf(peak) : null,
+      top_ratio: top,
+      hour_histogram: histogram,
+      resolution_breakdown: { '1K': { tasks: 0, images: 0 }, '2K': { tasks: 0, images: 0 }, '4K': { tasks: 0, images: 0 }, '历史': { tasks: 0, images: 0 } }
+    }
+  }
+  usage.value = {
+    daily,
+    ranges: { all: makeRange('all'), '30d': makeRange('30d'), '7d': makeRange('7d') },
+    hour_histogram: new Array(24).fill(0),
+    first_task_time: tasks.value.length ? Math.min(...tasks.value.map((task) => task.createdAt)) : 0,
+    total_tasks: tasks.value.length
   }
 }
 
@@ -1539,7 +1533,20 @@ function showMessage(message: string): void {
 function cleanErrorMessage(error: unknown, fallback: string): string {
   const raw = error instanceof Error ? error.message : ''
   const cleaned = raw.replace(/^Error invoking remote method '[^']+':\s*(?:Error:\s*)?/, '').trim()
-  return cleaned || fallback
+  const safe = (cleaned || fallback)
+    .replace(/Bearer\s+[A-Za-z0-9._~+/=-]+/gi, 'Bearer [redacted]')
+    .replace(/https?:\/\/[^\s)]+/gi, (value) => {
+      try {
+        const parsed = new URL(value)
+        parsed.search = ''
+        parsed.hash = ''
+        return parsed.toString()
+      } catch {
+        return '[redacted-url]'
+      }
+    })
+    .replace(/\/(?:Users|private|var|tmp)\/[^\s]+/gi, '[local path redacted]')
+  return safe.slice(0, 800)
 }
 
 function showError(error: unknown, fallback = '操作失败，请稍后重试'): void {
@@ -2115,49 +2122,30 @@ function togglePsdRail(): void {
   psdRailOpen.value = !psdRailOpen.value
 }
 
-function normalizeList(value: unknown): Array<Record<string, unknown>> {
-  if (Array.isArray(value)) return value.filter((item): item is Record<string, unknown> => Boolean(item && typeof item === 'object'))
-  if (!value || typeof value !== 'object') return []
-  const row = value as Record<string, unknown>
-  for (const key of ['lists', 'list', 'data', 'providers']) {
-    if (Array.isArray(row[key])) return normalizeList(row[key])
-  }
-  return []
-}
-
-function normalizeResultImages(value: unknown): string[] {
-  if (Array.isArray(value)) {
-    return value
-      .map((item) => typeof item === 'string' ? item : String((item as Record<string, unknown>)?.url || (item as Record<string, unknown>)?.image || ''))
-      .map(absoluteAssetUrl)
-      .filter(Boolean)
-  }
-  if (typeof value === 'string') {
-    const trimmed = value.trim()
-    if (!trimmed) return []
-    try {
-      return normalizeResultImages(JSON.parse(trimmed))
-    } catch {
-      return [absoluteAssetUrl(trimmed)].filter(Boolean)
-    }
-  }
-  return []
-}
-
-function extractUploadUrl(value: unknown): string {
-  if (typeof value === 'string') return value
-  if (!value || typeof value !== 'object') return ''
-  const row = value as Record<string, unknown>
-  return String(row.url || row.uri || row.path || '').trim()
-}
-
 function persistTasks(): void {
   const payload = tasks.value
     .filter((task) => Number(task.id) > 0)
     .slice(0, 100)
     .map((task) => ({
       ...task,
-      resultImages: task.resultImages.filter((url) => !String(url || '').startsWith('data:'))
+      // Remote URLs and base64 output are transient. The durable source is the
+      // local output file; this keeps prompts/history useful without leaking
+      // signed provider URLs into localStorage.
+      resultImages: [],
+      sourceImages: undefined,
+      localCropMeta: task.localCropMeta
+        ? {
+            ...task.localCropMeta,
+            productSources: undefined
+          }
+        : undefined,
+      savedFiles: task.savedFiles.map((file) => ({
+        url: String(file.url || '').startsWith('local-crop-composite://')
+          ? file.url
+          : `local-result://${task.id}`,
+        path: file.path,
+        sha256: file.sha256
+      }))
     }))
   localStorage.setItem(TASKS_KEY, JSON.stringify(payload))
 }
@@ -2198,6 +2186,7 @@ function persistPsdTasks(): void {
       }
     })
     localStorage.setItem(PSD_TASKS_KEY, JSON.stringify(payload))
+    localStorage.removeItem(LEGACY_PSD_TASKS_KEY)
   } catch (error) {
     console.warn('PSD 任务历史写入失败：', error)
   }
@@ -2205,7 +2194,8 @@ function persistPsdTasks(): void {
 
 function restorePsdTasks(): void {
   try {
-    const raw = JSON.parse(localStorage.getItem(PSD_TASKS_KEY) || '[]') as PsdTask[]
+    const stored = localStorage.getItem(PSD_TASKS_KEY) ?? localStorage.getItem(LEGACY_PSD_TASKS_KEY) ?? '[]'
+    const raw = JSON.parse(stored) as PsdTask[]
     if (!Array.isArray(raw)) {
       psdTasks.value = []
       return
@@ -2266,6 +2256,7 @@ function restorePsdTasks(): void {
       })
     // 有历史时默认展开右栏，方便接着看
     if (psdTasks.value.length) psdRailOpen.value = true
+    localStorage.removeItem(LEGACY_PSD_TASKS_KEY)
   } catch {
     psdTasks.value = []
   }
@@ -2302,13 +2293,62 @@ function sortNewestFirst(items: LocalTask[]): LocalTask[] {
 
 function restoreTasks(): void {
   try {
-    const raw = JSON.parse(localStorage.getItem(TASKS_KEY) || '[]') as LocalTask[]
-    const list = Array.isArray(raw) ? raw.filter((task) => Number(task.id) > 0 && !isTaskHidden(Number(task.id))) : []
+    const stored = localStorage.getItem(TASKS_KEY) ?? localStorage.getItem(LEGACY_TASKS_KEY) ?? '[]'
+    const raw = JSON.parse(stored) as LocalTask[]
+    const list = Array.isArray(raw)
+      ? raw
+          .filter((task) => Number(task.id) > 0 && !isTaskHidden(Number(task.id)))
+          .map((task) => ({
+            ...task,
+            // Migrate legacy task records without retaining remote URLs.
+            resultImages: [],
+            sourceImages: undefined,
+            localCropMeta: task.localCropMeta
+              ? { ...task.localCropMeta, productSources: undefined }
+              : undefined,
+            savedFiles: Array.isArray(task.savedFiles)
+              ? task.savedFiles
+                  .filter((file) => file && typeof file.path === 'string' && file.path.trim())
+                  .map((file) => ({
+                    url: String(file.url || '').startsWith('local-crop-composite://')
+                      ? file.url
+                      : `local-result://${Number(task.id)}`,
+                    path: file.path,
+                    sha256: String(file.sha256 || '')
+                  }))
+              : []
+          }))
+      : []
     tasks.value = sortNewestFirst(list.slice(0, 100))
+    persistTasks()
+    localStorage.removeItem(LEGACY_TASKS_KEY)
+    void restoreSavedResultPreviews()
     void restoreLocalCropPreviews()
   } catch {
     tasks.value = []
   }
+}
+
+async function restoreSavedResultPreviews(): Promise<void> {
+  if (!window.desktop?.readSavedResultPreview) return
+  let changed = false
+  for (const task of tasks.value) {
+    if (isLocalCropTask(task)) continue
+    const previews: string[] = []
+    for (const saved of task.savedFiles.filter((file) => file.path && !String(file.url || '').startsWith('local-crop-composite://'))) {
+      try {
+        const preview = await window.desktop.readSavedResultPreview(saved.path)
+        previews.push(preview.previewDataUrl)
+      } catch {
+        // Missing local output stays as a visible history item without a broken image.
+      }
+    }
+    if (previews.length && JSON.stringify(previews) !== JSON.stringify(task.resultImages)) {
+      task.resultImages = previews
+      changed = true
+    }
+  }
+  if (changed) persistTasks()
 }
 
 async function restoreLocalCropPreviews(): Promise<void> {
@@ -2322,7 +2362,7 @@ async function restoreLocalCropPreviews(): Promise<void> {
       task.toolScene = 'crop'
       changed = true
     }
-    // 历史同步曾丢掉 localCropMeta 时，尝试从 savedFiles 找回拼合路径
+    // 本地历史缺少 localCropMeta 时，尝试从 savedFiles 找回拼合路径
     if (!task.localCropMeta?.compositePath) {
       const saved = task.savedFiles.find((file) => String(file.url || '').startsWith('local-crop-composite://'))
       if (saved?.path && task.localCropMeta) {
@@ -2386,6 +2426,7 @@ async function maybeCompositeLocalCrop(task: LocalTask): Promise<void> {
       sceneImageId: meta.sceneImageId,
       scenePath: meta.scenePath,
       patchUrl: task.resultImages[0],
+      patchPath: task.savedFiles.find((file) => !String(file.url || '').startsWith('local-crop-composite://'))?.path,
       // meta 来自响应式 tasks 数组，meta.cropBox 读出来仍是 Proxy；IPC 走 structured clone
       // 无法序列化 Proxy，这里转成纯对象再传给主进程
       cropBox: { x: meta.cropBox.x, y: meta.cropBox.y, size: meta.cropBox.size },
@@ -2417,216 +2458,6 @@ async function maybeCompositeLocalCrop(task: LocalTask): Promise<void> {
   }
 }
 
-function parseCreatedAt(value: unknown): number {
-  const numeric = Number(value || 0)
-  if (Number.isFinite(numeric) && numeric > 0) return numeric < 10_000_000_000 ? numeric * 1000 : numeric
-  const parsed = Date.parse(String(value || '').trim().replace(' ', 'T'))
-  return Number.isFinite(parsed) ? parsed : Date.now()
-}
-
-function parseToolInputs(value: unknown): Record<string, unknown> | null {
-  if (!value) return null
-  if (typeof value === 'string') {
-    try {
-      const parsed = JSON.parse(value)
-      return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed as Record<string, unknown> : null
-    } catch {
-      return null
-    }
-  }
-  if (typeof value === 'object' && !Array.isArray(value)) return value as Record<string, unknown>
-  return null
-}
-
-function extractToolScene(row: Record<string, unknown>, cached?: LocalTask): string {
-  const regenerate = row.regenerate_params && typeof row.regenerate_params === 'object'
-    ? row.regenerate_params as Record<string, unknown>
-    : null
-  const fromRow = String(
-    row.tool_scene
-    || row.scene
-    || regenerate?.tool_scene
-    || regenerate?.scene
-    || cached?.toolScene
-    || ''
-  ).trim()
-  if (fromRow) return fromRow
-  const prompt = String(row.prompt || cached?.prompt || '')
-  if (prompt.includes(LOCAL_CROP_PRESERVE_GUARD) || prompt.includes('灰色选区') || prompt.includes(DEFAULT_LOCAL_CROP_PROMPT.slice(0, 18))) {
-    return 'crop'
-  }
-  if (cached?.localCropMeta) return 'crop'
-  return ''
-}
-
-function localCropMetaFromServer(
-  row: Record<string, unknown>,
-  cached: LocalTask | undefined,
-  toolScene: string,
-  sourceImages: string[]
-): LocalCropMeta | undefined {
-  const regenerate = row.regenerate_params && typeof row.regenerate_params === 'object'
-    ? row.regenerate_params as Record<string, unknown>
-    : null
-  const inputs = parseToolInputs(regenerate?.tool_inputs ?? row.tool_inputs)
-  const cropBoxRaw = inputs?.crop_box && typeof inputs.crop_box === 'object'
-    ? inputs.crop_box as Record<string, unknown>
-    : null
-  const cropBox = cropBoxRaw
-    ? {
-        x: Number(cropBoxRaw.x || 0),
-        y: Number(cropBoxRaw.y || 0),
-        size: Number(cropBoxRaw.size || 0)
-      }
-    : cached?.localCropMeta?.cropBox
-  const hasMask = Boolean(
-    inputs?.has_mask
-    ?? cached?.localCropMeta?.hasMask
-    ?? (cropBox && cropBox.size > 0)
-  )
-  const compositeFromSaved = (cached?.savedFiles || []).find((file) => String(file.url || '').startsWith('local-crop-composite://'))
-  const compositePath = cached?.localCropMeta?.compositePath || compositeFromSaved?.path || undefined
-  const productSources = [
-    ...(cached?.localCropMeta?.productSources || []),
-    ...sourceImages.slice(1)
-  ].filter((url, index, arr) => url && arr.indexOf(url) === index).slice(0, 3)
-
-  if (cached?.localCropMeta) {
-    return {
-      ...cached.localCropMeta,
-      cropBox: cropBox && cropBox.size > 0 ? cropBox : cached.localCropMeta.cropBox,
-      hasMask: cached.localCropMeta.hasMask || hasMask,
-      compositePath: cached.localCropMeta.compositePath || compositePath,
-      productSources: cached.localCropMeta.productSources?.length ? cached.localCropMeta.productSources : productSources
-    }
-  }
-
-  if (toolScene !== 'crop' && !compositePath && !(cropBox && cropBox.size > 0)) return undefined
-  return {
-    sceneImageId: cached?.localCropMeta?.sceneImageId || '',
-    cropBox: cropBox && cropBox.size > 0 ? cropBox : { x: 0, y: 0, size: 0 },
-    hasMask,
-    maskPaths: cached?.localCropMeta?.maskPaths,
-    productSources: productSources.length ? productSources : undefined,
-    scenePath: cached?.localCropMeta?.scenePath,
-    compositePath
-  }
-}
-
-function historyTaskFromServer(row: Record<string, unknown>, cached?: LocalTask): LocalTask | null {
-  const id = Number(row.id || row.task_id || 0)
-  if (id <= 0 || String(row.media_type || 'image') !== 'image') return null
-  const statusCode = Number(row.status ?? 0)
-  const resultImages = normalizeResultImages(
-    row.result_images || row.result_image || row.images || row.result_thumbs || row.image || row.cover
-  )
-  const status: TaskStatus = statusCode === 3
-    ? 'failed'
-    : (statusCode === 2 || resultImages.length ? 'success' : (statusCode === 0 ? 'queued' : 'running'))
-  const sourceImages = normalizeResultImages(row.source_images || row.source_image)
-  const toolScene = extractToolScene(row, cached)
-  const mergedSources = sourceImages.length ? sourceImages : (cached?.sourceImages || [])
-  const localCropMeta = localCropMetaFromServer(row, cached, toolScene, mergedSources)
-  // 局部重绘：服务端 result 是裁切补丁；本地已有 data/blob 拼合预览时优先保留，避免同步冲掉
-  const cachedCompositePreview = (cached?.resultImages || []).find((url) => url.startsWith('data:') || url.startsWith('blob:'))
-  const mergedResults = (toolScene === 'crop' || localCropMeta)
-    ? (cachedCompositePreview ? [cachedCompositePreview, ...resultImages.filter((url) => url !== cachedCompositePreview)] : resultImages)
-    : resultImages
-  return {
-    id,
-    prompt: String(row.prompt || row.title || cached?.prompt || 'AI 生成图片'),
-    size: String(row.size || cached?.size || ''),
-    status,
-    progress: status === 'success' ? 100 : Math.max(0, Math.min(99, Number(row.progress ?? cached?.progress ?? 0))),
-    createdAt: parseCreatedAt(row.create_time || row.created_at || cached?.createdAt),
-    resultImages: mergedResults,
-    savedFiles: cached?.savedFiles || [],
-    sourceImages: mergedSources.length ? mergedSources : undefined,
-    quality: String(row.quality || cached?.quality || '') || undefined,
-    resolution: String(row.resolution || cached?.resolution || '') || undefined,
-    providerId: Number(row.provider_id || cached?.providerId || 0) || undefined,
-    error: status === 'failed' ? String(row.error_msg || row.fail_reason || cached?.error || '生成失败') : '',
-    downloadError: cached?.downloadError || '',
-    toolScene: toolScene || cached?.toolScene,
-    localCropMeta
-  }
-}
-
-async function syncTaskHistory(): Promise<void> {
-  if (!getToken() || historySyncing.value) return
-  historySyncing.value = true
-  historySyncError.value = ''
-  try {
-    const cachedById = new Map(tasks.value.map((task) => [task.id, task]))
-    const rows: Array<Record<string, unknown>> = []
-    const seen = new Set<number>()
-    let page = 1
-    let total = Number.POSITIVE_INFINITY
-    while (page <= HISTORY_MAX_PAGES && rows.length < total) {
-      const data = await api.taskHistory(page, HISTORY_PAGE_SIZE)
-      const pageRows = normalizeList(data)
-      total = Math.max(0, Number(data.count ?? pageRows.length))
-      for (const row of pageRows) {
-        const id = Number(row.id || row.task_id || 0)
-        if (id <= 0 || seen.has(id)) continue
-        seen.add(id)
-        rows.push(row)
-      }
-      if (pageRows.length < HISTORY_PAGE_SIZE || rows.length >= total) break
-      page += 1
-    }
-    const synced = rows
-      .map((row) => historyTaskFromServer(row, cachedById.get(Number(row.id || row.task_id || 0))))
-      .filter((task): task is LocalTask => Boolean(task))
-      .filter((task) => !isTaskHidden(task.id))
-    const serverIds = new Set(synced.map((task) => task.id))
-    const localPending = tasks.value.filter(
-      (task) => !serverIds.has(task.id) && (task.status === 'queued' || task.status === 'running') && !isTaskHidden(task.id)
-    )
-    // 赋值前再滤一遍：避免同步过程中用户删除导致已隐藏任务被写回
-    tasks.value = purgeHiddenTasksFromList(sortNewestFirst([...localPending, ...synced]))
-    persistTasks()
-    // 同步会用服务端 resultImages 覆盖本地；把已拼合任务的预览从 compositePath 再挂回去
-    void restoreLocalCropPreviews()
-    for (const task of tasks.value.filter((item) => item.status === 'queued' || item.status === 'running')) {
-      void pollTask(task.id, 0)
-    }
-  } catch (error) {
-    historySyncError.value = error instanceof Error ? error.message : '历史图片同步失败'
-    if (error instanceof ApiError && error.authExpired) {
-      user.value = null
-      usage.value = null
-      tasks.value = []
-      localStorage.removeItem(TASKS_KEY)
-      loginOpen.value = true
-    }
-  } finally {
-    historySyncing.value = false
-  }
-}
-
-async function restorePersistentSession(): Promise<void> {
-  if (!window.desktop) return
-  try {
-    const session = await window.desktop.getSession()
-    if (session?.token) {
-      setToken(session.token)
-      user.value = session.user as UserInfo
-      setStoredUser(user.value)
-      return
-    }
-    const token = getToken()
-    if (token && user.value) {
-      await window.desktop.saveSession({
-        token,
-        user: user.value as unknown as Record<string, unknown>
-      })
-    }
-  } catch {
-    // 系统安全存储不可用时继续使用当前渲染层会话，不阻断启动。
-  }
-}
-
 function applyTheme(): void {
   const next = settings.theme === 'system'
     ? (window.matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark')
@@ -2639,7 +2470,6 @@ async function loadDesktopState(): Promise<void> {
   try {
     const info = await window.desktop.getInfo()
     Object.assign(appInfo, info)
-    setDevKeepSession(Boolean(info.devFakeSession))
     Object.assign(settings, await window.desktop.getSettings())
     selectedProviderId.value = settings.generationProviderId
     selectedSize.value = settings.generationSize
@@ -2681,34 +2511,18 @@ function scheduleGenerationSettingsSave(): void {
   }, 180)
 }
 
-async function loadServiceConfig(): Promise<void> {
-  try {
-    const config = await api.serviceConfig()
-    const pcSite = config.pc_site && typeof config.pc_site === 'object' ? config.pc_site as Record<string, unknown> : {}
-    brandName.value = String(pcSite.site_title || config.brand_name || 'AI 图像工作台')
-    fallbackUnitCost.value = Math.max(0, Number(config.credits_per_image || 49))
-    const loginConfig = config.login && typeof config.login === 'object' ? config.login as Record<string, unknown> : {}
-    loginAgreementRequired.value = Number(loginConfig.login_agreement || 0) === 1
-    wechatLoginAvailable.value = Number(loginConfig.third_auth || 0) === 1 && Number(loginConfig.wechat_auth || 0) === 1
-  } catch {
-    brandName.value = 'AI 图像工作台'
-  }
-}
-
 function normalizeParameterOptions(value: unknown): ParameterOption[] {
   if (!Array.isArray(value)) return []
   return value
     .map((item) => {
-      if (typeof item === 'string') return { label: item, value: item, credits: null }
+      if (typeof item === 'string') return { label: item, value: item }
       if (!item || typeof item !== 'object') return null
       const row = item as Record<string, unknown>
       const optionValue = String(row.value ?? row.id ?? '').trim()
       if (!optionValue) return null
-      const rawCredits = row.credits
       return {
         label: String(row.label || row.name || optionValue),
-        value: optionValue,
-        credits: rawCredits === undefined || rawCredits === null ? null : Math.max(0, Number(rawCredits) || 0)
+        value: optionValue
       }
     })
     .filter((item): item is ParameterOption => Boolean(item))
@@ -2728,85 +2542,47 @@ function syncProviderSelections(): void {
   }
 }
 
-async function loadProviders(): Promise<void> {
-  try {
-    const data = await api.providers(createMode.value === 'image' ? 'img2img' : 'text2img')
-    const options = normalizeList(data).map((row) => ({
-      id: Number(row.id || row.provider_id || 0),
-      label: String(row.name || row.label || row.title || '默认线路'),
-      model: String(row.model_label || row.model || ''),
-      isDefault: Boolean(Number(row.is_default || row.default || 0)),
-      sizeOptions: normalizeParameterOptions(row.size_options),
-      qualityOptions: normalizeParameterOptions(row.quality_options),
-      resolutionOptions: normalizeParameterOptions(row.resolution_options),
-      priceMatrix: row.price_matrix && typeof row.price_matrix === 'object' ? row.price_matrix as PriceMatrix : {},
-      referenceImageCredits: Math.max(0, Number(row.reference_image_credits || 0))
-    }))
-    providers.value = options.length ? options : [{
-      id: 0,
-      label: '租户默认线路',
-      model: '',
-      isDefault: true,
-      sizeOptions: [{ label: '正方形', value: '1:1', credits: fallbackUnitCost.value }],
-      qualityOptions: [{ label: '默认', value: 'low', credits: 0 }],
-      resolutionOptions: [{ label: '标准 1K', value: '1K', credits: 0 }],
-      priceMatrix: {},
-      referenceImageCredits: 0
-    }]
-    if (!providers.value.some((item) => item.id === selectedProviderId.value)) {
-      selectedProviderId.value = (providers.value.find((item) => item.isDefault) || providers.value[0]).id
-    }
-    syncProviderSelections()
-  } catch {
-    providers.value = [{
-      id: 0,
-      label: '租户默认线路',
-      model: '',
-      isDefault: true,
-      sizeOptions: [{ label: '正方形', value: '1:1', credits: fallbackUnitCost.value }],
-      qualityOptions: [{ label: '默认', value: 'low', credits: 0 }],
-      resolutionOptions: [{ label: '标准 1K', value: '1K', credits: 0 }],
-      priceMatrix: {},
-      referenceImageCredits: 0
-    }]
-    selectedProviderId.value = 0
-    syncProviderSelections()
+function providerOptions(): ProviderOption {
+  const model = providerConfig.value.model || settings.imageModel || 'Image2 model'
+  return {
+    id: 0,
+    label: model,
+    model,
+    isDefault: true,
+    sizeOptions: [
+      { label: 'Square', value: '1:1' },
+      { label: 'Landscape', value: '3:2' },
+      { label: 'Portrait', value: '2:3' }
+    ],
+    qualityOptions: [
+      { label: 'Auto', value: 'auto' },
+      { label: 'Low', value: 'low' },
+      { label: 'Medium', value: 'medium' },
+      { label: 'High', value: 'high' }
+    ],
+    resolutionOptions: [{ label: 'Standard', value: '1K' }]
   }
 }
 
-async function refreshCredits(): Promise<void> {
-  if (!getToken()) return
+async function loadProviderConfig(): Promise<void> {
   try {
-    const stats = await api.userStats()
-    user.value = {
-      ...(user.value || {}),
-      credits: Number(stats.credits ?? user.value?.credits ?? 0),
-      balance: Number(stats.balance ?? user.value?.balance ?? 0),
-      isMember: Number(stats.is_member ?? (user.value?.isMember ? 1 : 0)) === 1
-    }
-    usedCredits.value = Number(stats.used_credits || 0)
-    setStoredUser(user.value)
-    const token = getToken()
-    if (token && user.value) {
-      void window.desktop?.saveSession({
-        token,
-        user: user.value as unknown as Record<string, unknown>
-      }).catch(() => undefined)
-    }
+    const config = await api.getProviderConfig()
+    providerConfig.value = config
+    settings.providerBaseUrl = config.baseUrl
+    settings.imageModel = config.model
+    providers.value = [providerOptions()]
+    selectedProviderId.value = 0
+    syncProviderSelections()
+    providerError.value = ''
   } catch (error) {
-    if (error instanceof ApiError && error.authExpired) {
-      user.value = null
-      usage.value = null
-      tasks.value = []
-      localStorage.removeItem(TASKS_KEY)
-      loginOpen.value = true
-    }
+    providerError.value = cleanErrorMessage(error, 'Provider settings could not be loaded')
+    providers.value = [providerOptions()]
   }
 }
 
 function switchMode(mode: CreateMode): void {
   createMode.value = mode
-  void loadProviders()
+  syncProviderSelections()
 }
 
 async function addReferences(): Promise<void> {
@@ -2870,37 +2646,40 @@ function removeReference(index: number): void {
   if (removed?.file && removed.preview.startsWith('blob:')) URL.revokeObjectURL(removed.preview)
 }
 
-async function referenceToFile(item: ReferenceImage): Promise<File> {
-  if (item.file) return item.file
-  if (!item.nativeId || !window.desktop) throw new Error('本地图片授权已失效，请重新选择')
-  const selected = await window.desktop.readSelectedImage(item.nativeId)
-  const view = selected.bytes instanceof Uint8Array ? selected.bytes : new Uint8Array(selected.bytes)
-  const buffer = view.buffer.slice(view.byteOffset, view.byteOffset + view.byteLength) as ArrayBuffer
-  return new File([buffer], selected.name, { type: selected.type })
+async function referenceToRequestFile(item: ReferenceImage): Promise<ImageRequestFile> {
+  let name = item.name || 'reference.png'
+  let type = 'image/png'
+  let bytes: ArrayBuffer
+  if (item.file) {
+    name = item.file.name || name
+    type = item.file.type || type
+    bytes = await item.file.arrayBuffer()
+  } else {
+    if (!item.nativeId || !window.desktop) throw new Error('本地图片授权已失效，请重新选择')
+    const selected = await window.desktop.readSelectedImage(item.nativeId)
+    const view = selected.bytes instanceof Uint8Array ? selected.bytes : new Uint8Array(selected.bytes)
+    bytes = view.buffer.slice(view.byteOffset, view.byteOffset + view.byteLength) as ArrayBuffer
+    name = selected.name || name
+    type = selected.type || type
+  }
+  return { name, type, bytes }
 }
 
-async function uploadReferences(): Promise<string[]> {
-  const urls: string[] = []
+async function readReferenceFiles(): Promise<ImageRequestFile[]> {
+  const files: ImageRequestFile[] = []
   for (const item of references.value.slice(0, MAX_REFERENCES)) {
-    if (item.remoteUrl) {
-      urls.push(item.remoteUrl)
-      continue
-    }
     item.uploading = true
     item.error = ''
     try {
-      const file = await referenceToFile(item)
-      const url = extractUploadUrl(await api.uploadImage(file))
-      if (!url) throw new Error('上传接口未返回图片地址')
-      urls.push(url)
+      files.push(await referenceToRequestFile(item))
     } catch (error) {
-      item.error = error instanceof Error ? error.message : '上传失败'
+      item.error = error instanceof Error ? error.message : '读取图片失败'
       throw error
     } finally {
       item.uploading = false
     }
   }
-  return urls
+  return files
 }
 
 function createLocalTask(
@@ -2927,15 +2706,12 @@ function createLocalTask(
   }
 }
 
-async function uploadWorkflowImage(image: DesktopSelectedImage): Promise<string> {
+async function readWorkflowImage(image: DesktopSelectedImage): Promise<ImageRequestFile> {
   if (!window.desktop) throw new Error('桌面图片读取能力不可用')
   const selected = await window.desktop.readSelectedImage(image.id)
   const view = selected.bytes instanceof Uint8Array ? selected.bytes : new Uint8Array(selected.bytes)
   const buffer = view.buffer.slice(view.byteOffset, view.byteOffset + view.byteLength) as ArrayBuffer
-  const file = new File([buffer], selected.name || image.name, { type: selected.type || image.type })
-  const url = extractUploadUrl(await api.uploadImage(file))
-  if (!url) throw new Error(`上传 ${image.name} 后未返回图片地址`)
-  return url
+  return { name: selected.name || image.name, type: selected.type || image.type || 'image/png', bytes: buffer }
 }
 
 function focusCreationFeed(): void {
@@ -3007,12 +2783,73 @@ function onWorkflowBeginFailed(message: string): void {
   failPreparingTask(message || '准备失败')
 }
 
+let localTaskSequence = 0
+
+function nextLocalTaskId(): number {
+  localTaskSequence = (localTaskSequence + 1) % 1000
+  return Date.now() * 1000 + localTaskSequence
+}
+
+function apiSizeForRequest(value: string): string {
+  if (/^\d+x\d+$/i.test(value)) return value
+  if (value === '3:2') return '1536x1024'
+  if (value === '2:3') return '1024x1536'
+  return '1024x1024'
+}
+
+function apiQualityForRequest(value: string): string {
+  return ['low', 'medium', 'high', 'auto'].includes(value) ? value : 'auto'
+}
+
+function decodeDataUrl(value: string): { bytes: ArrayBuffer; extension: string } {
+  const match = /^data:([^;,]+)?;base64,([\s\S]+)$/i.exec(value.trim())
+  if (!match) throw new Error('服务返回了无法保存的图片格式')
+  const mime = String(match[1] || 'image/png').toLowerCase()
+  const extension = mime.includes('jpeg') || mime.includes('jpg') ? '.jpg' : mime.includes('webp') ? '.webp' : '.png'
+  const binary = atob(match[2].replace(/\s/g, ''))
+  const bytes = new Uint8Array(binary.length)
+  for (let index = 0; index < binary.length; index += 1) bytes[index] = binary.charCodeAt(index)
+  return { bytes: bytes.buffer, extension }
+}
+
+async function materializeTaskResults(task: LocalTask, images: GeneratedImage[]): Promise<void> {
+  if (!window.desktop) throw new Error('只能在桌面应用中保存生成结果')
+  task.resultImages = []
+  task.savedFiles = []
+  for (const [index, image] of images.entries()) {
+    const source = String(image.src || '').trim()
+    let saved: { path: string; sha256: string }
+    if (/^data:image\//i.test(source)) {
+      const decoded = decodeDataUrl(source)
+      saved = await window.desktop.writeWorkspaceFile({
+        name: `image-${task.id}-${index + 1}`,
+        bytes: decoded.bytes,
+        extension: decoded.extension
+      })
+    } else if (/^https?:\/\//i.test(source)) {
+      saved = await window.desktop.downloadResult({ url: source, taskId: task.id, index })
+    } else {
+      throw new Error('服务返回了无法保存的图片地址')
+    }
+    task.savedFiles.push({ url: `local-result://${task.id}-${index}`, path: saved.path, sha256: saved.sha256 })
+    try {
+      const preview = await window.desktop.readSavedResultPreview(saved.path)
+      task.resultImages.push(preview.previewDataUrl)
+    } catch {
+      if (/^data:image\//i.test(source)) task.resultImages.push(source)
+      else throw new Error('图片已下载，但本地预览读取失败')
+    }
+    task.progress = Math.min(96, 58 + Math.round(((index + 1) / images.length) * 36))
+    persistTasks()
+  }
+}
+
 async function submitWorkflowBatch(payload: WorkflowSubmission): Promise<void> {
   if (workflowSubmitting.value) return
-  if (!getToken()) {
-    loginOpen.value = true
-    failPreparingTask('登录后可继续提交')
-    showMessage('登录后可继续提交，当前选择的图片尚未上传')
+  if (!isConfigured.value) {
+    failPreparingTask('请先配置 API URL、API Key 和 Image2 模型')
+    settingsOpen.value = true
+    showMessage('请先在 Settings 中配置你的 Images API')
     return
   }
   // 一点生成就切到创作；若局部重绘已 begin，则复用占位卡
@@ -3052,101 +2889,70 @@ async function submitWorkflowBatch(payload: WorkflowSubmission): Promise<void> {
     }
   }
   workflowSubmitting.value = true
-  const uploaded = new Map<string, string>()
   const createdTasks: LocalTask[] = []
   const failures: string[] = []
   try {
     for (const item of payload.items) {
+      let currentTask: LocalTask | null = null
       try {
         bumpPreparingProgress(28)
-        const sourceImages: string[] = []
-        for (const image of item.sources.slice(0, MAX_REFERENCES)) {
-          let url = uploaded.get(image.id)
-          if (!url) {
-            url = await uploadWorkflowImage(image)
-            uploaded.set(image.id, url)
-          }
-          sourceImages.push(url)
-        }
+        const sourceFiles = await Promise.all(item.sources.slice(0, MAX_REFERENCES).map(readWorkflowImage))
         bumpPreparingProgress(48)
-        const toolInputs: Record<string, unknown> = {
-          workflow: payload.kind,
-          source_count: sourceImages.length
-        }
-        if (payload.kind === 'crop' && payload.localCrop) {
-          toolInputs.crop_box = payload.localCrop.cropBox
-          toolInputs.has_mask = payload.localCrop.hasMask
-        }
-        const toolTitle = payload.kind === 'sellVideo'
-          ? '一键带货转台'
-          : (plannedViews.find((view) => view.id === payload.kind)?.label || 'Mac 批量创作')
-        const response = await api.createGenerate({
-          type: sourceImages.length ? 2 : 1,
-          prompt: item.prompt,
-          source_image: sourceImages[0] || '',
-          source_images: sourceImages,
-          style_id: 0,
-          provider_id: payload.providerId,
-          model: payload.model,
-          size: payload.size,
-          quality: payload.quality,
-          resolution: payload.resolution,
-          count: 1,
-          tool_title: toolTitle,
-          tool_scene: payload.kind,
-          tool_inputs: toolInputs
-        })
-        const rawIds = Array.isArray(response.task_ids) && response.task_ids.length ? response.task_ids : [response.task_id]
-        const ids = rawIds.map((id) => Number(id || 0)).filter((id) => id > 0)
-        if (!ids.length) throw new Error('服务端未返回任务 ID')
-        const local = ids.map((id) => createLocalTask(id, item.prompt, payload.size, {
-          sourceImages,
+        const localCropMeta = payload.localCrop
+          ? {
+              sceneImageId: payload.localCrop.sceneImageId,
+              cropBox: payload.localCrop.cropBox,
+              hasMask: payload.localCrop.hasMask,
+              maskPaths: payload.localCrop.maskPaths,
+              productSources: payload.localCrop.productSources
+            }
+          : undefined
+        const task = createLocalTask(nextLocalTaskId(), item.prompt, payload.size, {
           quality: payload.quality,
           resolution: payload.resolution,
           providerId: payload.providerId,
           toolScene: payload.kind === 'crop' ? 'crop' : payload.kind,
-          localCropMeta: payload.localCrop
-            ? {
-                sceneImageId: payload.localCrop.sceneImageId,
-                cropBox: payload.localCrop.cropBox,
-                hasMask: payload.localCrop.hasMask,
-                maskPaths: payload.localCrop.maskPaths,
-                // sourceImages[0] 是烘焙后的裁切场景；其后才是产品参考
-                productSources: sourceImages.slice(1).filter((url) => /^https?:\/\//i.test(url)).slice(0, 3)
-              }
-            : undefined
-        }))
-        for (const task of local) {
-          if (task.localCropMeta && window.desktop?.cacheLocalCropScene) {
-            try {
-              const cached = await window.desktop.cacheLocalCropScene({
-                taskId: task.id,
-                imageId: task.localCropMeta.sceneImageId
-              })
-              task.localCropMeta.scenePath = cached.scenePath
-            } catch {
-              // 缓存失败不阻断生成；回贴时再尝试用 imageId
-            }
+          localCropMeta
+        })
+        currentTask = task
+        task.status = 'running'
+        task.progress = 52
+        createdTasks.push(task)
+        clearPreparingTask()
+        tasks.value = sortNewestFirst([task, ...tasks.value])
+        persistTasks()
+        const images = sourceFiles.length
+          ? await api.editImages({ model: payload.model, prompt: item.prompt, count: 1, size: apiSizeForRequest(payload.size), quality: apiQualityForRequest(payload.quality), sources: sourceFiles })
+          : await api.generateImages({ model: payload.model, prompt: item.prompt, count: 1, size: apiSizeForRequest(payload.size), quality: apiQualityForRequest(payload.quality) })
+        await materializeTaskResults(task, images)
+        if (task.localCropMeta && window.desktop?.cacheLocalCropScene) {
+          try {
+            const cached = await window.desktop.cacheLocalCropScene({ taskId: task.id, imageId: task.localCropMeta.sceneImageId })
+            task.localCropMeta.scenePath = cached.scenePath
+          } catch {
+            // 回贴时仍可尝试用 sceneImageId 读取原图
           }
         }
-        createdTasks.push(...local)
-        clearPreparingTask()
-        tasks.value = sortNewestFirst([...local, ...tasks.value])
+        await maybeCompositeLocalCrop(task)
+        task.status = 'success'
+        task.progress = 100
         persistTasks()
-        local.forEach((task) => void pollTask(task.id, 0))
+        notifySystem('Generation complete', images.length > 1 ? `${images.length} images saved locally` : 'Image saved locally')
       } catch (error) {
-        if (error instanceof ApiError && error.authExpired) {
-          loginOpen.value = true
-          throw error
+        if (currentTask) {
+          currentTask.status = 'failed'
+          currentTask.progress = 100
+          currentTask.error = cleanErrorMessage(error, '任务提交失败')
+          persistTasks()
         }
         failures.push(cleanErrorMessage(error, '任务提交失败'))
       }
     }
     if (!createdTasks.length) throw new Error(failures[0] || '没有任务提交成功')
     if (failures.length) showError(new Error(`已提交 ${createdTasks.length} 个，${failures.length} 个失败，可修正后单独重试`))
-    else showMessage(`已提交 ${createdTasks.length} 个任务，正在生成`)
+    else showMessage(`已完成 ${createdTasks.length} 个本地任务`)
     if (payload.kind === 'sellVideo') setHistoryRail(true)
-    void Promise.all([refreshCredits(), loadOverview()])
+    rebuildLocalUsage()
   } catch (error) {
     failPreparingTask(cleanErrorMessage(error, '批量任务提交失败'))
     showError(error, '批量任务提交失败')
@@ -3157,81 +2963,53 @@ async function submitWorkflowBatch(payload: WorkflowSubmission): Promise<void> {
 
 async function submitTask(): Promise<void> {
   if (submitting.value || !canSubmit.value) return
-  if (!getToken()) {
-    pendingSubmit.value = true
-    loginOpen.value = true
-    showMessage('登录后会继续提交，当前本地图片不会上传')
+  if (!isConfigured.value) {
+    settingsOpen.value = true
+    showMessage('请先在 Settings 中配置你的 Images API')
     return
   }
   // 一点生成就切到创作，并立刻出现进度卡
   const taskPrompt = prompt.value.trim() || '参考上传图片生成新图'
   beginPreparingTask(taskPrompt)
   submitting.value = true
+  let task: LocalTask | null = null
   try {
     bumpPreparingProgress(20)
-    const sourceImages = createMode.value === 'image' ? await uploadReferences() : []
+    const sourceFiles = createMode.value === 'image' ? await readReferenceFiles() : []
     bumpPreparingProgress(45)
     const activeProvider = providers.value.find((item) => item.id === selectedProviderId.value)
-    const response = await api.createGenerate({
-      type: createMode.value === 'image' ? 2 : 1,
-      prompt: taskPrompt,
-      source_image: sourceImages[0] || '',
-      source_images: sourceImages,
-      style_id: 0,
-      provider_id: activeProvider?.id || 0,
-      model: activeProvider?.model || '',
-      size: selectedSize.value,
+    task = createLocalTask(nextLocalTaskId(), taskPrompt, selectedSize.value, {
       quality: quality.value,
       resolution: resolution.value,
-      count: count.value
+      providerId: activeProvider?.id || 0
     })
-    const rawIds = Array.isArray(response.task_ids) && response.task_ids.length ? response.task_ids : [response.task_id]
-    const taskIds = rawIds.map((id) => Number(id || 0)).filter((id) => id > 0)
-    if (!taskIds.length) throw new Error('任务创建失败，服务端未返回任务 ID')
-    const created = taskIds.map((id) => createLocalTask(id, taskPrompt, undefined, { sourceImages }))
+    task.status = 'running'
+    task.progress = 52
     clearPreparingTask()
-    tasks.value = sortNewestFirst([...created, ...tasks.value])
+    tasks.value = sortNewestFirst([task, ...tasks.value])
     persistTasks()
-    showMessage(taskIds.length > 1 ? `已提交 ${taskIds.length} 个任务` : '任务已提交，正在生成')
-    // 提交成功后像 Claude 出 Plan 一样拉出右侧历史记录栏
+    const images = sourceFiles.length
+      ? await api.editImages({ model: activeProvider?.model, prompt: taskPrompt, count: count.value, size: apiSizeForRequest(selectedSize.value), quality: apiQualityForRequest(quality.value), sources: sourceFiles })
+      : await api.generateImages({ model: activeProvider?.model, prompt: taskPrompt, count: count.value, size: apiSizeForRequest(selectedSize.value), quality: apiQualityForRequest(quality.value) })
+    await materializeTaskResults(task, images)
+    task.status = 'success'
+    task.progress = 100
+    persistTasks()
+    showMessage(images.length > 1 ? `已保存 ${images.length} 张图片` : '图片已保存到本机工作区')
     setHistoryRail(true)
-    for (const task of created) void pollTask(task.id, 0)
-    void refreshCredits()
+    rebuildLocalUsage()
   } catch (error) {
-    failPreparingTask(cleanErrorMessage(error, '提交失败，请稍后重试'))
-    if (error instanceof ApiError && error.authExpired) {
-      pendingSubmit.value = true
-      loginOpen.value = true
+    if (task) {
+      task.status = 'failed'
+      task.progress = 100
+      task.error = cleanErrorMessage(error, '提交失败，请稍后重试')
+      persistTasks()
     }
+    failPreparingTask(cleanErrorMessage(error, '提交失败，请稍后重试'))
     showError(error, '提交失败，请稍后重试')
   } finally {
     submitting.value = false
   }
-}
-
-function taskFromServer(task: LocalTask, data: Record<string, unknown>): void {
-  const status = Number(data.status ?? 0)
-  const images = normalizeResultImages(data.result_images || data.result_image || data.images)
-  task.progress = Math.min(100, Math.max(task.progress, Number(data.progress || 0)))
-  if (status === 2 || images.length) {
-    task.status = 'success'
-    task.progress = 100
-    task.resultImages = images
-    task.error = ''
-  } else if (status === 3) {
-    task.status = 'failed'
-    task.error = String(data.error_msg || data.fail_reason || '生成失败，已按服务端规则处理')
-  } else {
-    task.status = status === 0 ? 'queued' : 'running'
-    task.progress = Math.max(task.progress, status === 0 ? 8 : Math.min(92, task.progress + 4))
-  }
-}
-
-function schedulePoll(taskId: number, attempt: number, delay = POLL_DELAY): void {
-  window.clearTimeout(pollTimers.get(taskId))
-  if (!isOnline.value) return
-  const timer = window.setTimeout(() => void pollTask(taskId, attempt), delay)
-  pollTimers.set(taskId, timer)
 }
 
 /* 系统通知：主进程发原生横幅；不支持或被系统关闭时静默忽略，不影响主流程 */
@@ -3240,117 +3018,33 @@ function notifySystem(title: string, body: string): void {
   void window.desktop.notify({ title, body }).catch(() => undefined)
 }
 
-async function pollTask(taskId: number, attempt: number): Promise<void> {
-  if (taskId <= 0) return
-  if (!isOnline.value) return
-  if (isTaskHidden(taskId)) {
-    pollTimers.delete(taskId)
-    return
-  }
-  if (activePolls.has(taskId)) return
-  const task = tasks.value.find((item) => item.id === taskId)
-  if (!task || task.status === 'success' || task.status === 'failed') return
-  if (isTaskHidden(task.id)) return
-  if (attempt >= MAX_POLLS) {
-    task.status = 'failed'
-    task.error = '轮询超时，可点击重试状态查询'
-    persistTasks()
-    return
-  }
-  activePolls.add(taskId)
-  try {
-    const data = attempt === 0 ? await api.taskDetail(taskId) : await api.pollTask(taskId)
-    taskFromServer(task, data)
-    persistTasks()
-    const nextStatus = (task as LocalTask).status
-    if (nextStatus === 'success') {
-      await maybeCompositeLocalCrop(task)
-      await autoDownloadTask(task)
-      const count = task.resultImages.length
-      notifySystem('生成完成', count > 1 ? `已出图 ${count} 张，点击查看` : '已出图，点击查看')
-    } else if (nextStatus === 'failed') {
-      notifySystem('生成失败', task.error || '任务未能完成，可在应用内重试')
-    } else {
-      schedulePoll(taskId, attempt + 1, Number(data.next_poll_seconds || 5) * 1000)
-    }
-  } catch (error) {
-    if (error instanceof ApiError && error.authExpired) {
-      loginOpen.value = true
-      task.error = '登录已过期，重新登录后可继续查询'
-    } else {
-      task.error = attempt > 2 ? '网络波动，正在自动重试' : ''
-      schedulePoll(taskId, attempt + 1, 3000)
-    }
-    persistTasks()
-  } finally {
-    activePolls.delete(taskId)
-  }
-}
-
 function resumePendingTasks(): void {
   for (const task of tasks.value.filter((item) => item.status === 'queued' || item.status === 'running')) {
-    void pollTask(task.id, 0)
+    task.status = 'failed'
+    task.progress = 100
+    task.error = '上次应用关闭时任务尚未完成，请重新提交'
   }
+  if (tasks.value.some((task) => task.status === 'failed')) persistTasks()
 }
 
 function handleOnline(): void {
   const wasOffline = !isOnline.value
   isOnline.value = true
-  if (wasOffline) showMessage('网络已恢复，正在继续同步任务')
-  resumePendingTasks()
-  void Promise.all([loadOverview(), syncTaskHistory()])
+  if (wasOffline) showMessage('网络已恢复；本地产物不需要远程同步')
 }
 
 function handleOffline(): void {
   isOnline.value = false
-  pollTimers.forEach((timer) => window.clearTimeout(timer))
-  pollTimers.clear()
-  showError(new Error('当前网络不可用，任务会在网络恢复后自动继续'))
+  showError(new Error('当前网络不可用；请检查 Provider 设置后重试'))
 }
 
 function handleSystemResume(): void {
-  resumePendingTasks()
-  if (getToken() && isOnline.value) void Promise.all([loadOverview(), syncTaskHistory()])
-}
-
-async function autoDownloadTask(task: LocalTask): Promise<void> {
-  if (!settings.autoDownload || !window.desktop) return
-  for (let index = 0; index < task.resultImages.length; index += 1) {
-    const url = task.resultImages[index]
-    if (!url || url.startsWith('data:') || url.startsWith('local-crop-composite://')) continue
-    if (task.savedFiles.some((file) => file.url === url) || activeDownloads.has(url)) continue
-    activeDownloads.add(url)
-    try {
-      const saved = await window.desktop.downloadResult({ url, taskId: task.id, index })
-      task.savedFiles.push({ url, path: saved.path, sha256: saved.sha256 })
-      task.downloadError = ''
-    } catch (error) {
-      task.downloadError = error instanceof Error ? error.message : '自动下载失败'
-    } finally {
-      activeDownloads.delete(url)
-      persistTasks()
-    }
-  }
+  rebuildLocalUsage()
 }
 
 async function retryTask(task: LocalTask): Promise<void> {
-  task.error = ''
-  task.downloadError = ''
-  if (task.status === 'success') {
-    try {
-      const fresh = await api.taskDetail(task.id)
-      taskFromServer(task, fresh)
-      await autoDownloadTask(task)
-    } catch (error) {
-      task.downloadError = error instanceof Error ? error.message : '结果地址刷新失败'
-      showError(error, '结果地址刷新失败')
-    }
-  } else {
-    task.status = 'running'
-    task.progress = Math.max(task.progress, 5)
-    await pollTask(task.id, 0)
-  }
-  persistTasks()
+  if (task.status === 'success') return showMessage('这项结果已经保存在本机工作区')
+  showMessage('本地历史不保存原始素材；请回到创作页重新提交以重试')
 }
 
 async function manualDownload(task: LocalTask, url: string, index: number): Promise<void> {
@@ -3400,10 +3094,11 @@ async function copyPreviewPrompt(): Promise<void> {
 
 async function ensurePreviewLocalPath(preview: { src: string; task: LocalTask }): Promise<string | null> {
   if (!window.desktop?.downloadResult) return null
-  let filePath = preview.task.savedFiles.find((file) => file.url === preview.src)?.path
+  const index = Math.max(0, preview.task.resultImages.indexOf(preview.src))
+  let filePath = preview.task.savedFiles[index]?.path
+    || preview.task.savedFiles.find((file) => file.url === preview.src)?.path
   if (filePath) return filePath
   if (preview.src.startsWith('data:') || preview.src.startsWith('blob:')) return null
-  const index = Math.max(0, preview.task.resultImages.indexOf(preview.src))
   const saved = await window.desktop.downloadResult({ url: preview.src, taskId: preview.task.id, index })
   if (!preview.task.savedFiles.some((file) => file.path === saved.path)) {
     preview.task.savedFiles.push({ url: preview.src, path: saved.path, sha256: saved.sha256 })
@@ -3447,30 +3142,13 @@ async function removeTaskCompletely(task: LocalTask): Promise<void> {
   if (deletingTaskIds.value.has(task.id)) return
   deletingTaskIds.value = new Set(deletingTaskIds.value).add(task.id)
   try {
-    // 正数 ID 必须先由服务端确认删除；失败时保留任务，避免只在本机“假删除”。
-    if (task.id > 0) {
-      if (!getToken()) {
-        loginOpen.value = true
-        throw new Error('登录后才能从服务器删除任务')
-      }
-      try {
-        await api.deleteTask(task.id)
-      } catch (error) {
-        if (!(error instanceof ApiError && /不存在|已删除|找不到/.test(error.message))) throw error
-      }
-      hideTaskIds([task.id])
-    }
+    hideTaskIds([task.id])
     if (preparingTaskId.value === task.id) preparingTaskId.value = null
-    const pollTimer = pollTimers.get(task.id)
-    if (pollTimer) {
-      window.clearTimeout(pollTimer)
-      pollTimers.delete(task.id)
-    }
     tasks.value = tasks.value.filter((item) => item.id !== task.id)
     persistTasks()
     if (previewImage.value?.task?.id === task.id) previewImage.value = null
     if (taskDetail.value?.id === task.id) taskDetail.value = null
-    showMessage('已从服务器删除任务')
+    showMessage('已从本机历史删除任务')
   } catch (error) {
     showError(error, '删除失败，任务仍保留')
   } finally {
@@ -3481,7 +3159,7 @@ async function removeTaskCompletely(task: LocalTask): Promise<void> {
 }
 
 async function removeTaskImage(task: LocalTask, _index: number): Promise<void> {
-  // 作品以任务为单位删除；只删本地某张图会被历史同步整任务拉回
+  // 作品以任务为单位删除；本地历史不再从远程服务恢复任务。
   await removeTaskCompletely(task)
 }
 
@@ -3532,98 +3210,6 @@ async function convertPreviewToPsd(): Promise<void> {
     showError(error, '一键转 PSD 失败')
   } finally {
     convertingPreviewPsd.value = false
-  }
-}
-
-/* ===== 微信扫码充值 ===== */
-
-function stopRechargePoll(): void {
-  if (rechargePollTimer !== null) {
-    window.clearTimeout(rechargePollTimer)
-    rechargePollTimer = null
-  }
-}
-
-function closeRecharge(): void {
-  stopRechargePoll()
-  rechargeOpen.value = false
-  rechargeQrDataUrl.value = ''
-  rechargeActivePackage.value = null
-  rechargePaid.value = false
-  rechargeError.value = ''
-}
-
-async function openRecharge(): Promise<void> {
-  openPopover.value = ''
-  rechargeOpen.value = true
-  rechargePaid.value = false
-  rechargeQrDataUrl.value = ''
-  rechargeActivePackage.value = null
-  rechargeError.value = ''
-  if (rechargePackages.value.length) return
-  rechargeLoading.value = true
-  try {
-    const data = await api.rechargePackages()
-    rechargePackages.value = normalizeList(data).map((row) => ({
-      id: Number(row.id || 0),
-      name: String(row.name || '充值套餐'),
-      price: String(row.price ?? '0'),
-      credits: Number(row.credits || 0),
-      draw_count: Number(row.draw_count || 0)
-    })).filter((item) => item.id > 0)
-    if (!rechargePackages.value.length) rechargeError.value = '暂无可用充值套餐'
-  } catch (error) {
-    rechargeError.value = cleanErrorMessage(error, '套餐加载失败')
-  } finally {
-    rechargeLoading.value = false
-  }
-}
-
-function pollRechargeStatus(orderNo: string, attempt: number): void {
-  stopRechargePoll()
-  // 二维码 5 分钟左右过期，按 3 秒一次轮询封顶 100 次
-  if (attempt > 100) return
-  rechargePollTimer = window.setTimeout(async () => {
-    try {
-      const data = await api.rechargePayStatus(orderNo)
-      if (Number((data as Record<string, unknown>).pay_status ?? 0) === 1) {
-        rechargePaid.value = true
-        stopRechargePoll()
-        await refreshCredits()
-        showMessage('充值已到账')
-        notifySystem('充值成功', rechargeActivePackage.value ? `${rechargeActivePackage.value.name} 已到账` : '积分已到账')
-        window.setTimeout(() => closeRecharge(), 1200)
-        return
-      }
-    } catch {
-      // 轮询期间的网络抖动不打断，继续下一次
-    }
-    pollRechargeStatus(orderNo, attempt + 1)
-  }, 3000)
-}
-
-async function pickRechargePackage(item: RechargePackage): Promise<void> {
-  if (rechargeCreating.value) return
-  rechargeCreating.value = true
-  rechargeError.value = ''
-  rechargeQrDataUrl.value = ''
-  rechargeActivePackage.value = item
-  stopRechargePoll()
-  try {
-    const data = await api.createRechargeOrder(item.id)
-    const row = data as Record<string, unknown>
-    const orderNo = String(row.order_no || '')
-    const pay = (row.pay || {}) as Record<string, unknown>
-    // 微信 Native 下单成功时 config 就是 weixin:// 开头的 code_url
-    const codeUrl = String(pay.config || '')
-    if (!codeUrl) throw new Error('未获取到微信支付二维码，请确认后台已开启 PC 端微信支付')
-    rechargeQrDataUrl.value = await qrCodeToDataURL(codeUrl, { width: 220, margin: 1 })
-    if (orderNo) pollRechargeStatus(orderNo, 0)
-  } catch (error) {
-    rechargeError.value = cleanErrorMessage(error, '发起充值失败')
-    rechargeActivePackage.value = null
-  } finally {
-    rechargeCreating.value = false
   }
 }
 
@@ -3783,7 +3369,7 @@ async function applyReuseLocalCropTask(task: LocalTask): Promise<void> {
 }
 
 function applyReuseTask(task: LocalTask): void {
-  // 同步标记，防止历史同步后 meta 丢失时仍误进图片生成
+  // 本地历史标记，防止 meta 丢失时仍误进图片生成
   if (isLocalCropTask(task)) {
     if (!task.toolScene) task.toolScene = 'crop'
     void applyReuseLocalCropTask(task)
@@ -3804,167 +3390,56 @@ async function copyTaskDetailPrompt(): Promise<void> {
   }
 }
 
-async function applyLoginSuccess(data: Record<string, unknown>): Promise<void> {
-  const token = String(data.token || '')
-  if (!token) throw new Error('登录返回缺少 token')
-  setToken(token)
-  user.value = {
-    id: Number(data.user_id || data.id || 0),
-    nickname: String(data.nickname || '用户'),
-    avatar: absoluteAssetUrl(String(data.avatar || '')),
-    mobile: String(data.mobile || data.phone || ''),
-    credits: Number(data.credits || 0),
-    balance: Number(data.balance || 0)
-  }
-  setStoredUser(user.value)
-  if (window.desktop) {
-    try {
-      await window.desktop.saveSession({
-        token,
-        user: user.value as unknown as Record<string, unknown>
-      })
-    } catch {
-      // 系统安全存储写入失败不应让已经成功的登录回滚。
-    }
-  }
-  loginOpen.value = false
-  await refreshCredits()
-  await Promise.all([loadOverview(), syncTaskHistory()])
-  if (pendingSubmit.value) {
-    pendingSubmit.value = false
-    await nextTick()
-    void submitTask()
-  }
-}
-
-async function login(): Promise<void> {
-  if (loginSubmitting.value) return
-  loginError.value = ''
-  if (!loginForm.account.trim() || !loginForm.password) {
-    loginError.value = '请输入账号和密码'
-    return
-  }
-  if (loginAgreementRequired.value && !loginForm.agreement) {
-    loginError.value = '请先同意用户协议和隐私政策'
-    return
-  }
-  loginSubmitting.value = true
-  try {
-    const data = await api.login(loginForm.account.trim(), loginForm.password, loginForm.agreement)
-    await applyLoginSuccess(data)
-  } catch (error) {
-    loginError.value = error instanceof Error ? error.message : '登录失败'
-  } finally {
-    loginSubmitting.value = false
-  }
-}
-
-function stopWechatLoginPoll(): void {
-  if (wechatPollTimer !== null) {
-    window.clearTimeout(wechatPollTimer)
-    wechatPollTimer = null
-  }
-}
-
-function scheduleWechatLoginPoll(attempt: number): void {
-  stopWechatLoginPoll()
-  wechatPollTimer = window.setTimeout(() => void pollWechatLogin(attempt), WECHAT_POLL_DELAY)
-}
-
-async function startWechatLogin(): Promise<void> {
-  stopWechatLoginPoll()
-  wechatLoginError.value = ''
-  wechatQrExpired.value = false
-  wechatQrDataUrl.value = ''
-  wechatQrLoading.value = true
-  try {
-    const { url, state } = await api.wechatAuthUrl()
-    wechatQrState.value = state
-    wechatQrDataUrl.value = await qrCodeToDataURL(url, { margin: 1, width: 220 })
-    scheduleWechatLoginPoll(0)
-  } catch (error) {
-    wechatLoginError.value = error instanceof Error ? error.message : '二维码生成失败，请重试'
-  } finally {
-    wechatQrLoading.value = false
-  }
-}
-
-async function pollWechatLogin(attempt: number): Promise<void> {
-  if (loginMode.value !== 'wechat' || !wechatQrState.value) return
-  if (attempt >= WECHAT_POLL_MAX) {
-    wechatQrExpired.value = true
-    wechatLoginError.value = '二维码已过期，请刷新后重试'
-    return
-  }
-  try {
-    const data = await api.wechatLoginPoll(wechatQrState.value)
-    if (data.status === 'pending') {
-      scheduleWechatLoginPoll(attempt + 1)
-      return
-    }
-    if (data.status === 'success') {
-      await applyLoginSuccess(data)
-      return
-    }
-    if (data.status === 'expired') {
-      wechatQrExpired.value = true
-      wechatLoginError.value = '二维码已过期，请刷新后重试'
-      return
-    }
-    wechatLoginError.value = data.message || '登录失败，请重试'
-  } catch (error) {
-    wechatLoginError.value = error instanceof Error ? error.message : '登录状态查询失败'
-    scheduleWechatLoginPoll(attempt + 1)
-  }
-}
-
-function switchLoginMode(mode: 'password' | 'wechat'): void {
-  if (loginMode.value === mode) return
-  loginMode.value = mode
-  loginError.value = ''
-  if (mode === 'wechat') void startWechatLogin()
-  else stopWechatLoginPoll()
-}
-
-watch(loginOpen, (open) => {
-  if (open) return
-  stopWechatLoginPoll()
-  loginMode.value = 'password'
-  wechatQrDataUrl.value = ''
-  wechatQrState.value = ''
-  wechatLoginError.value = ''
-  wechatQrExpired.value = false
-})
-
-async function logout(): Promise<void> {
-  setToken('')
-  setStoredUser(null)
-  try {
-    await window.desktop?.clearSession()
-  } catch {
-    // 本地会话已在渲染层清除，系统存储清理失败不阻断退出。
-  }
-  user.value = null
-  usage.value = null
-  tasks.value = []
-  localStorage.removeItem(TASKS_KEY)
-  openPopover.value = ''
-  showMessage('已退出登录')
-}
-
 async function saveSettings(): Promise<void> {
-  if (!window.desktop) {
-    settingsOpen.value = false
-    applyTheme()
-    return
-  }
+  providerStatus.value = 'saving'
   try {
-    Object.assign(settings, await window.desktop.saveSettings(currentDesktopSettings()))
+    if (window.desktop) Object.assign(settings, await window.desktop.saveSettings(currentDesktopSettings()))
+    await api.saveProviderConfig({
+      baseUrl: settings.providerBaseUrl,
+      model: settings.imageModel,
+      apiKey: providerKeyDraft.value.trim() || undefined
+    })
+    providerKeyDraft.value = ''
+    await loadProviderConfig()
     applyTheme()
     settingsOpen.value = false
-    showMessage('设置已保存')
+    providerStatus.value = 'connected'
+    showMessage('Settings saved. API key stays in encrypted local storage.')
   } catch (error) {
+    providerStatus.value = 'error'
+    providerError.value = cleanErrorMessage(error, 'Provider settings could not be saved')
     showError(error, '设置保存失败')
+  }
+}
+
+async function testProvider(): Promise<void> {
+  providerStatus.value = 'testing'
+  providerError.value = ''
+  try {
+    if (providerKeyDraft.value.trim() || settings.providerBaseUrl !== providerConfig.value.baseUrl || settings.imageModel !== providerConfig.value.model) {
+      await api.saveProviderConfig({ baseUrl: settings.providerBaseUrl, model: settings.imageModel, apiKey: providerKeyDraft.value.trim() || undefined })
+      providerKeyDraft.value = ''
+      await loadProviderConfig()
+    }
+    await api.testProviderConnection()
+    providerStatus.value = 'connected'
+    showMessage('Connection successful. The provider key was not sent anywhere else.')
+  } catch (error) {
+    providerStatus.value = 'error'
+    providerError.value = cleanErrorMessage(error, 'Connection test failed')
+  }
+}
+
+async function clearProviderKey(): Promise<void> {
+  try {
+    await api.saveProviderConfig({ baseUrl: settings.providerBaseUrl, model: settings.imageModel, clearApiKey: true })
+    providerKeyDraft.value = ''
+    await loadProviderConfig()
+    providerStatus.value = 'idle'
+    showMessage('API key cleared from encrypted local storage')
+  } catch (error) {
+    providerStatus.value = 'error'
+    providerError.value = cleanErrorMessage(error, 'API key could not be cleared')
   }
 }
 
@@ -4017,33 +3492,15 @@ onMounted(async () => {
   // 启动时不强制收起侧栏：默认最小窗口也保留侧栏；仅在用户拖拽变窄时自动收起
   // syncSidebarToViewport()
   shuffleHeroIdeas()
+  clearLegacyAuthStorage()
   restoreTasks()
   restorePsdTasks()
-  /*
-   * 启动时不能一看到 user 为空就判定未登录：本地只存了 token 时，
-   * 用户信息要等 refreshCredits 回来才有，中间会闪一屏登录页。
-   * 没有 token 才是真未登录，可以立刻放行到登录页。
-   */
-  try {
-    await restorePersistentSession()
-  } catch {
-    // 会话恢复失败按未登录处理，下面统一放行
-  }
-  if (!getToken()) sessionRestoring.value = false
   await loadDesktopState()
-  await Promise.all([loadServiceConfig(), loadProviders()])
+  await loadProviderConfig()
+  rebuildLocalUsage()
+  resumePendingTasks()
   generationSettingsReady.value = true
   scheduleGenerationSettingsSave()
-  if (getToken()) {
-    try {
-      await refreshCredits()
-      await Promise.all([loadOverview(), syncTaskHistory()])
-    } finally {
-      // 无论续期成功还是 token 失效，到这里用户态都已确定，不能再卡在过渡态
-      sessionRestoring.value = false
-    }
-  }
-  sessionRestoring.value = false
   await refreshPsdStorage()
   if (window.desktop) {
     removePsdProgressListener = window.desktop.onPsdProgress(({ taskId, progress, stage }) => {
@@ -4080,20 +3537,18 @@ if (window.desktop.onVoiceEvent) removeVoiceEventListener = window.desktop.onVoi
       removePhotopeaEventListener = window.desktop.onPhotopeaEvent(handlePhotopeaEvent)
     }
   }
+  appBooting.value = false
   await nextTick()
   contentRef.value?.scrollTo({ top: 0, behavior: 'auto' })
 })
 
 onBeforeUnmount(() => {
-  stopRechargePoll()
   document.removeEventListener('mousedown', onDocumentMousedown, true)
   document.removeEventListener('keydown', onDocumentKeydown)
   window.removeEventListener('online', handleOnline)
   window.removeEventListener('offline', handleOffline)
   window.removeEventListener('resize', syncSidebarToViewport)
   window.removeEventListener('resize', syncHistoryRailToViewport)
-  pollTimers.forEach((timer) => window.clearTimeout(timer))
-  stopWechatLoginPoll()
   if (generationSettingsTimer !== null) window.clearTimeout(generationSettingsTimer)
   if (primaryModeTransitionTimer !== null) window.clearTimeout(primaryModeTransitionTimer)
   if (primaryModeTransitionFrame !== null) window.cancelAnimationFrame(primaryModeTransitionFrame)
@@ -4125,42 +3580,14 @@ removePsdProgressListener?.()
 </script>
 
 <template>
-  <!-- 会话恢复中：只铺一层与主题一致的底，避免闪过登录页 -->
-  <div v-if="sessionRestoring" :class="['login-shell', { 'is-fullscreen': windowFullscreen }]">
-    <div class="login-shell-drag" />
-  </div>
-
-  <!-- 未登录时整个工作台都不渲染，只留一个登录窗口 -->
-  <div v-else-if="!isLoggedIn" :class="['login-shell', { 'is-fullscreen': windowFullscreen }]">
-    <div class="login-shell-drag" />
-    <section class="login-standalone" role="dialog" aria-modal="true" aria-label="登录AI 图像工作台">
-      <h2>登录</h2>
-      <p>登录后同步积分与任务。</p>
-      <div v-if="wechatLoginAvailable" class="login-mode-tabs">
-        <button type="button" :class="{ active: loginMode === 'password' }" @click="switchLoginMode('password')">账号密码</button>
-        <button type="button" :class="{ active: loginMode === 'wechat' }" @click="switchLoginMode('wechat')"><QrCode :size="14" /> 微信扫码</button>
-      </div>
-      <template v-if="loginMode === 'password'">
-        <label class="modal-field"><span>账号</span><input v-model="loginForm.account" autocomplete="username" placeholder="手机号或账号" @keydown.enter="login" /></label>
-        <label class="modal-field"><span>密码</span><input v-model="loginForm.password" type="password" autocomplete="current-password" placeholder="请输入密码" @keydown.enter="login" /></label>
-        <label v-if="loginAgreementRequired" class="agreement"><input v-model="loginForm.agreement" type="checkbox" /> <span>我已阅读并同意用户协议和隐私政策</span></label>
-        <p v-if="loginError" class="login-error"><AlertCircle :size="14" /> {{ loginError }}</p>
-        <button class="modal-primary" type="button" :disabled="loginSubmitting" @click="login">
-          <LoaderCircle v-if="loginSubmitting" :size="16" class="spin" />
-          {{ loginSubmitting ? '登录中…' : '登录并继续' }}
-        </button>
-      </template>
-      <template v-else>
-        <div class="wechat-qr-panel">
-          <LoaderCircle v-if="wechatQrLoading" :size="24" class="spin" />
-          <img v-else-if="wechatQrDataUrl" :src="wechatQrDataUrl" alt="微信扫码登录二维码" width="220" height="220" />
-          <button v-if="wechatQrExpired" type="button" class="ghost-btn" @click="startWechatLogin"><RefreshCw :size="14" /> 二维码已过期，点击刷新</button>
-          <p v-else class="wechat-qr-hint">请使用微信扫一扫登录</p>
-        </div>
-        <p v-if="wechatLoginError" class="login-error"><AlertCircle :size="14" /> {{ wechatLoginError }}</p>
-      </template>
-    </section>
-  </div>
+  <ShowcaseView
+    v-if="showcaseOpen"
+    :app-name="brandName"
+    :version="appInfo.version"
+    :configured="isConfigured"
+    @start="enterWorkspace"
+    @settings="settingsOpen = true"
+  />
 
   <div v-else :class="['app-shell', { 'is-fullscreen': windowFullscreen, 'has-psd-rail': activeView === 'psd' && psdRailOpen && !(psdMaskEditor.open && psdMaskEditor.draft) }]">
     <aside
@@ -4221,7 +3648,6 @@ removePsdProgressListener?.()
               <component :is="item.icon" :size="17" />
               <span>{{ item.label }}</span>
               <span v-if="item.id === 'psd' && psdRunningCount" class="nav-dot" />
-              <span v-if="item.id === 'history' && historySyncing" class="nav-spinner"><LoaderCircle :size="13" class="spin" /></span>
             </button>
           </div>
         </template>
@@ -4229,48 +3655,36 @@ removePsdProgressListener?.()
 
       <div class="sidebar-footer pop-wrap">
         <Transition name="pop">
-          <div v-if="openPopover === 'account'" class="menu-pop account-menu" role="menu">
+          <div v-if="openPopover === 'workspace'" class="menu-pop provider-menu" role="menu">
             <div class="menu-head">
-              <span class="menu-head-main">{{ user?.mobile || user?.nickname || '已登录' }}</span>
-              <span class="menu-head-sub">{{ Number(user?.credits || 0).toLocaleString() }} 积分 · {{ membershipLabel }}</span>
+              <span class="menu-head-main">{{ isConfigured ? 'Provider ready' : 'Provider setup' }}</span>
+              <span class="menu-head-sub">{{ providerMenuLabel }} · Local history</span>
             </div>
             <button v-if="updateAvailable" class="menu-item menu-item-accent" type="button" role="menuitem" @click="updateModalOpen = true; openPopover = ''">
               <ArrowUp :size="15" /> 有新版本 {{ updateState.version }}
             </button>
             <div v-if="updateAvailable" class="menu-sep" />
-            <button class="menu-item" type="button" role="menuitem" @click="openRecharge">
-              <Wallet :size="15" /> 充值
-            </button>
             <button class="menu-item" type="button" role="menuitem" @click="settingsOpen = true; openPopover = ''">
-              <Settings :size="15" /> 设置
+              <Settings :size="15" /> Settings / 设置
+            </button>
+            <button class="menu-item" type="button" role="menuitem" @click="showcaseOpen = true; openPopover = ''">
+              <Sparkles :size="15" /> About / Showcase
             </button>
             <button class="menu-item" type="button" role="menuitem" @click="helpPlaceholder">
-              <HelpCircle :size="15" /> 帮助
-            </button>
-            <div class="menu-sep" />
-            <button class="menu-item" type="button" role="menuitem" @click="logout">
-              <LogOut :size="15" /> 退出登录
+              <HelpCircle :size="15" /> Help / 帮助
             </button>
           </div>
         </Transition>
-        <button v-if="isLoggedIn" :class="['account-chip', { open: openPopover === 'account' }]" type="button" @click="togglePopover('account')">
+        <button :class="['workspace-chip', { open: openPopover === 'workspace' }]" type="button" @click="togglePopover('workspace')">
           <span class="avatar">
-            <img v-if="user?.avatar" :src="user.avatar" alt="" />
-            <template v-else>{{ accountInitial }}</template>
+            <template>{{ workspaceInitial }}</template>
             <span v-if="updateAvailable" class="avatar-update-dot" aria-label="有新版本" />
           </span>
-          <span class="account-copy">
-            <strong>{{ user?.nickname || '已登录' }}</strong>
-            <span>{{ membershipLabel }}</span>
+          <span class="workspace-copy">
+            <strong>{{ isConfigured ? 'Provider ready' : 'Set up API' }}</strong>
+            <span>{{ providerMenuLabel }}</span>
           </span>
-          <ChevronDown :size="14" class="account-chevron" />
-        </button>
-        <button v-else class="account-chip" type="button" @click="loginOpen = true">
-          <span class="avatar"><LogIn :size="14" /></span>
-          <span class="account-copy">
-            <strong>登录</strong>
-            <span>同步积分与任务</span>
-          </span>
+          <ChevronDown :size="14" class="workspace-chevron" />
         </button>
       </div>
     </aside>
@@ -4315,42 +3729,33 @@ removePsdProgressListener?.()
             <LoaderCircle v-if="clearingFailed" :size="15" class="spin" />
             <Trash2 v-else :size="15" />
           </button>
-          <button class="panel-toggle" type="button" aria-label="打开网站" data-tooltip="打开网站" @click="openSiteUrl">
-            <Globe :size="15" />
-          </button>
           <button class="panel-toggle" type="button" aria-label="设置" data-tooltip="设置" @click="settingsOpen = true">
             <Settings :size="15" />
           </button>
           <div class="pop-wrap">
             <button
-              :class="['panel-toggle', { active: openPopover === 'topbarAccount' }]"
+              :class="['panel-toggle', { active: openPopover === 'providerMenu' }]"
               type="button"
-              aria-label="账号菜单"
-              data-tooltip="账号"
-              @click="togglePopover('topbarAccount')"
+              aria-label="About and provider menu"
+              data-tooltip="About / Provider"
+              @click="togglePopover('providerMenu')"
             >
               <MoreHorizontal :size="15" />
             </button>
             <Transition name="pop">
-              <div v-if="openPopover === 'topbarAccount'" class="menu-pop account-menu topbar-menu" role="menu">
-                <template v-if="isLoggedIn">
-                  <div class="menu-head">
-                    <span class="menu-head-main">{{ user?.mobile || user?.nickname || '已登录' }}</span>
-                    <span class="menu-head-sub">{{ Number(user?.credits || 0).toLocaleString() }} 积分 · {{ membershipLabel }}</span>
-                  </div>
-                  <button class="menu-item" type="button" role="menuitem" @click="settingsOpen = true; openPopover = ''">
-                    <Settings :size="15" /> 设置
-                  </button>
-                  <button class="menu-item" type="button" role="menuitem" @click="helpPlaceholder">
-                    <HelpCircle :size="15" /> 帮助
-                  </button>
-                  <div class="menu-sep" />
-                  <button class="menu-item" type="button" role="menuitem" @click="logout">
-                    <LogOut :size="15" /> 退出登录
-                  </button>
-                </template>
-                <button v-else class="menu-item" type="button" role="menuitem" @click="loginOpen = true; openPopover = ''">
-                  <LogIn :size="15" /> 登录
+              <div v-if="openPopover === 'providerMenu'" class="menu-pop provider-menu topbar-menu" role="menu">
+                <div class="menu-head">
+                  <span class="menu-head-main">{{ isConfigured ? 'Provider ready' : 'Bring your own key' }}</span>
+                  <span class="menu-head-sub">Provider billing stays external · Local history</span>
+                </div>
+                <button class="menu-item" type="button" role="menuitem" @click="settingsOpen = true; openPopover = ''">
+                  <Settings :size="15" /> Settings / 设置
+                </button>
+                <button class="menu-item" type="button" role="menuitem" @click="showcaseOpen = true; openPopover = ''">
+                  <Sparkles :size="15" /> About / Showcase
+                </button>
+                <button class="menu-item" type="button" role="menuitem" @click="helpPlaceholder">
+                  <HelpCircle :size="15" /> Help / 帮助
                 </button>
               </div>
             </Transition>
@@ -4423,7 +3828,7 @@ removePsdProgressListener?.()
           ref="primaryModeStageRef"
           :class="[
             'primary-mode-stage',
-            { 'has-primary-visual': isLoggedIn },
+            { 'has-primary-visual': true },
             primaryModeTransition ? `mode-transition-to-${primaryModeTransition}` : ''
           ]"
         >
@@ -4433,7 +3838,7 @@ removePsdProgressListener?.()
             :inert="activeView !== 'quick'"
           >
 
-        <section v-if="isLoggedIn" ref="usageCardRef" class="usage-card primary-visual-frame" aria-label="生图数据总览">
+        <section ref="usageCardRef" class="usage-card primary-visual-frame" aria-label="Local workspace overview">
           <header class="usage-head">
             <div class="usage-view-tabs" role="tablist" aria-label="统计视图">
               <button :class="{ active: usageTab === 'overview' }" type="button" @click="usageTab = 'overview'">总览 <em>Overview</em></button>
@@ -4445,17 +3850,14 @@ removePsdProgressListener?.()
                 <button :class="{ active: usageRange === '30d' }" type="button" @click="usageRange = '30d'">30天</button>
                 <button :class="{ active: usageRange === '7d' }" type="button" @click="usageRange = '7d'">7天</button>
               </div>
-              <button class="sync-button" type="button" :disabled="historySyncing" title="同步全部历史图片" @click="syncTaskHistory">
-                <LoaderCircle v-if="historySyncing" :size="14" class="spin" />
-                <RefreshCw v-else :size="14" />
-              </button>
+              <span class="usage-local-badge">LOCAL ONLY</span>
             </div>
           </header>
           <div v-if="usageTab === 'overview'" class="usage-body">
             <div class="usage-tiles">
               <div class="usage-tile"><span>生成次数 <em>Runs</em></span><strong>{{ usageTotals.tasks.toLocaleString() }}</strong></div>
               <div class="usage-tile"><span>出图数 <em>Images</em></span><strong>{{ usageTotals.images.toLocaleString() }}</strong></div>
-              <div class="usage-tile"><span>累计消耗 <em>Credits</em></span><strong>{{ usageTotals.credits.toLocaleString() }}</strong></div>
+              <div class="usage-tile"><span>本地产物 <em>Saved files</em></span><strong>{{ usageTotals.images.toLocaleString() }}</strong></div>
               <div class="usage-tile"><span>活跃天数 <em>Active</em></span><strong>{{ usageTotals.activeDays }}</strong></div>
               <div class="usage-tile"><span>连续活跃 <em>Streak</em></span><strong>{{ usageStreaks.current }} 天</strong></div>
               <div class="usage-tile"><span>最长连续 <em>Best</em></span><strong>{{ usageStreaks.longest }} 天</strong></div>
@@ -4725,7 +4127,7 @@ removePsdProgressListener?.()
                     tabindex="-1"
                     :disabled="!canSubmit"
                     :aria-hidden="!(canSubmit || submitting)"
-                    :aria-label="isLoggedIn ? '开始生成' : '登录并生成'"
+                    aria-label="开始生成"
                     @click="submitTask"
                   >
                     <LoaderCircle v-if="submitting" :size="16" class="spin" />
@@ -4737,7 +4139,7 @@ removePsdProgressListener?.()
           </div>
           <div class="composer-tray mode-composer-tray">
             <div class="composer-tray-left">
-              <span>{{ isLoggedIn ? `预计 ${totalCost} 积分` : `未登录 · 提交时需登录 · 预计 ${totalCost} 积分` }}</span>
+              <span>{{ isConfigured ? 'Provider ready · saved locally' : 'Configure a provider in Settings' }}</span>
               <span v-if="voiceStatus" class="voice-status" role="status" aria-live="polite">{{ voiceStatus }}</span>
             </div>
             <span>⌘ ↵ 生成</span>
@@ -4798,28 +4200,11 @@ removePsdProgressListener?.()
 
       <div v-else-if="activeView === 'history'" class="view history-view">
         <header class="page-toolbar history-toolbar">
-          <p class="page-toolbar-note">网页、小程序与 Mac 的生成记录会汇总到这里。</p>
-          <button v-if="isLoggedIn" class="ghost-btn" type="button" :disabled="historySyncing" @click="syncTaskHistory">
-            <LoaderCircle v-if="historySyncing" :size="14" class="spin" />
-            <RefreshCw v-else :size="14" />
-            {{ historySyncing ? '同步中' : '同步全部' }}
-          </button>
+          <p class="page-toolbar-note">Local history on this Mac · 本机历史记录，不连接远程服务。</p>
+          <span class="local-history-badge">{{ tasks.length }} local tasks</span>
         </header>
 
-        <div v-if="!isLoggedIn" class="placeholder-card compact">
-          <LogIn :size="28" />
-          <h2>登录后同步全部图片</h2>
-          <p>登录一次后，Mac 会安全保存会话，后续打开无需重复输入账号密码。</p>
-          <button class="primary-btn" type="button" @click="loginOpen = true"><LogIn :size="15" /> 登录</button>
-        </div>
-        <p v-else-if="historySyncError" class="sync-error">
-          <AlertCircle :size="13" /> {{ historySyncError }}
-          <button type="button" @click="syncTaskHistory">重试</button>
-        </p>
-        <div v-else-if="historySyncing && !tasks.length" class="history-loading">
-          <LoaderCircle :size="20" class="spin" /> 正在同步全部历史图片…
-        </div>
-        <div v-else-if="tasks.length" ref="historyGridRef" class="waterfall history-waterfall">
+        <div v-if="tasks.length" ref="historyGridRef" class="waterfall history-waterfall">
           <div v-for="(column, columnIndex) in historyColumns" :key="columnIndex" class="wf-col">
             <template v-for="cell in column" :key="cell.key">
               <div v-if="cell.kind === 'card' && (cell.task.status === 'queued' || cell.task.status === 'running')" class="wf-card" @click="openTaskDetail(cell.task)">
@@ -5279,84 +4664,38 @@ removePsdProgressListener?.()
       </div>
     </Transition>
 
-    <div v-if="loginOpen" class="modal-backdrop" @mousedown.self="loginOpen = false">
-      <section class="modal" role="dialog" aria-modal="true" aria-label="登录AI 图像工作台">
-        <button class="modal-close" type="button" aria-label="关闭" @click="loginOpen = false"><X :size="17" /></button>
-        <h2>登录</h2>
-        <p>登录后同步积分和任务，本地选择的图片仍未上传。</p>
-        <div v-if="wechatLoginAvailable" class="login-mode-tabs">
-          <button type="button" :class="{ active: loginMode === 'password' }" @click="switchLoginMode('password')">账号密码</button>
-          <button type="button" :class="{ active: loginMode === 'wechat' }" @click="switchLoginMode('wechat')"><QrCode :size="14" /> 微信扫码</button>
-        </div>
-        <template v-if="loginMode === 'password'">
-          <label class="modal-field"><span>账号</span><input v-model="loginForm.account" autocomplete="username" placeholder="手机号或账号" @keydown.enter="login" /></label>
-          <label class="modal-field"><span>密码</span><input v-model="loginForm.password" type="password" autocomplete="current-password" placeholder="请输入密码" @keydown.enter="login" /></label>
-          <label v-if="loginAgreementRequired" class="agreement"><input v-model="loginForm.agreement" type="checkbox" /> <span>我已阅读并同意用户协议和隐私政策</span></label>
-          <p v-if="loginError" class="login-error"><AlertCircle :size="14" /> {{ loginError }}</p>
-          <button class="modal-primary" type="button" :disabled="loginSubmitting" @click="login">
-            <LoaderCircle v-if="loginSubmitting" :size="16" class="spin" />
-            {{ loginSubmitting ? '登录中…' : '登录并继续' }}
-          </button>
-        </template>
-        <template v-else>
-          <div class="wechat-qr-panel">
-            <LoaderCircle v-if="wechatQrLoading" :size="24" class="spin" />
-            <img v-else-if="wechatQrDataUrl" :src="wechatQrDataUrl" alt="微信扫码登录二维码" width="220" height="220" />
-            <button v-if="wechatQrExpired" type="button" class="ghost-btn" @click="startWechatLogin"><RefreshCw :size="14" /> 二维码已过期，点击刷新</button>
-            <p v-else class="wechat-qr-hint">请使用微信扫一扫登录</p>
-          </div>
-          <p v-if="wechatLoginError" class="login-error"><AlertCircle :size="14" /> {{ wechatLoginError }}</p>
-        </template>
-      </section>
-    </div>
-
-    <div v-if="rechargeOpen" class="modal-backdrop" @mousedown.self="closeRecharge">
-      <section class="modal" role="dialog" aria-modal="true" aria-label="充值">
-        <button class="modal-close" type="button" aria-label="关闭" @click="closeRecharge"><X :size="17" /></button>
-        <h2>充值</h2>
-        <p>选择套餐后用微信扫码支付，到账会自动刷新积分。</p>
-
-        <p v-if="rechargeError" class="login-error"><AlertCircle :size="14" /> {{ rechargeError }}</p>
-
-        <div v-if="rechargeLoading" class="wechat-qr-panel"><LoaderCircle :size="24" class="spin" /></div>
-
-        <template v-else-if="!rechargeQrDataUrl">
-          <div class="recharge-list">
-            <button
-              v-for="item in rechargePackages"
-              :key="item.id"
-              class="recharge-item"
-              type="button"
-              :disabled="rechargeCreating"
-              @click="pickRechargePackage(item)"
-            >
-              <span class="recharge-item-main">
-                <strong>{{ item.name }}</strong>
-                <em>{{ item.credits.toLocaleString() }} 积分<template v-if="item.draw_count"> · 约 {{ item.draw_count }} 张</template></em>
-              </span>
-              <span class="recharge-item-price">¥ {{ item.price }}</span>
-            </button>
-          </div>
-        </template>
-
-        <template v-else>
-          <div class="wechat-qr-panel">
-            <Check v-if="rechargePaid" :size="40" class="recharge-paid-icon" />
-            <img v-else :src="rechargeQrDataUrl" alt="微信支付二维码" width="220" height="220" />
-            <p class="wechat-qr-hint">
-              {{ rechargePaid ? '支付成功，积分已到账' : `微信扫码支付 ¥ ${rechargeActivePackage?.price ?? ''}，支付后自动到账` }}
-            </p>
-          </div>
-          <button v-if="!rechargePaid" class="ghost-btn" type="button" @click="rechargeQrDataUrl = ''"><RotateCcw :size="14" /> 换个套餐</button>
-        </template>
-      </section>
-    </div>
-
     <div v-if="settingsOpen" class="modal-backdrop" @mousedown.self="settingsOpen = false">
       <section class="modal" role="dialog" aria-modal="true" aria-label="设置">
         <button class="modal-close" type="button" aria-label="关闭" @click="settingsOpen = false"><X :size="17" /></button>
-        <h2>设置</h2>
-        <p>仅保存在本机。</p>
+        <h2>Settings <span class="modal-title-secondary">设置</span></h2>
+        <p>BYOK, local-first. Your API key is encrypted by macOS and is only sent to the API origin you confirm.</p>
+        <div class="provider-settings-block">
+          <div class="provider-settings-heading">
+            <div><strong>Images API</strong><small>OpenAI-compatible · 兼容 Images API</small></div>
+            <span :class="['provider-status-dot', providerStatus]" :title="providerStatus" />
+          </div>
+          <label class="modal-field">
+            <span>API Base URL <small>HTTPS or localhost</small></span>
+            <input v-model="settings.providerBaseUrl" type="url" spellcheck="false" placeholder="https://your-provider.example/v1" />
+          </label>
+          <label class="modal-field">
+            <span>API Key <small>{{ providerConfig.hasApiKey ? providerConfig.maskedApiKey : 'not saved' }}</small></span>
+            <input v-model="providerKeyDraft" type="password" autocomplete="new-password" spellcheck="false" placeholder="Paste a key only if you want to replace it" />
+          </label>
+          <label class="modal-field">
+            <span>Image2 Model <small>used for generations and edits</small></span>
+            <input v-model="settings.imageModel" type="text" spellcheck="false" placeholder="gpt-image-1 or compatible model" />
+          </label>
+          <p v-if="providerError" class="provider-error"><AlertCircle :size="14" /> {{ providerError }}</p>
+          <div class="provider-settings-actions">
+            <button type="button" class="ghost-btn" :disabled="providerStatus === 'testing' || providerStatus === 'saving'" @click="testProvider">
+              <LoaderCircle v-if="providerStatus === 'testing'" :size="14" class="spin" />
+              <RefreshCw v-else :size="14" /> Test connection
+            </button>
+            <button v-if="providerConfig.hasApiKey" type="button" class="ghost-btn danger" @click="clearProviderKey">Clear key</button>
+          </div>
+          <small class="provider-privacy-note">No login, in-app billing, remote history, telemetry, or hidden upload endpoint. Photopea is a separate third-party service and receives files only when you explicitly open it.</small>
+        </div>
         <label class="modal-field">
           <span>外观</span>
           <div class="select-wrap">
@@ -5366,16 +4705,11 @@ removePsdProgressListener?.()
         </label>
         <label class="modal-field">
           <span>问候称呼 <small>可选</small></span>
-          <input v-model="settings.greetingName" type="text" maxlength="12" autocomplete="off" placeholder="留空则不显示名字" />
         </label>
         <div class="modal-field">
           <span>保存目录</span>
           <button class="directory-picker" type="button" @click="chooseOutputDirectory"><FolderOpen :size="15" /><span>{{ settings.outputDirectory }}</span></button>
         </div>
-        <label class="modal-field">
-          <span>网站地址</span>
-          <input v-model="settings.siteUrl" type="url" placeholder="https://…（填写后顶栏显示打开网站按钮）" />
-        </label>
         <div class="storage-row">
           <span>本地产物占用 {{ formatBytes(psdStorageBytes) }}</span>
           <button type="button" @click="openOutputDirectory"><FolderOpen :size="13" /> 打开保存目录</button>
@@ -5387,7 +4721,7 @@ removePsdProgressListener?.()
             <button v-if="modelStatus.phase === 'error'" type="button" :disabled="modelBusy" @click="repairModels"><Download :size="13" /> 修复</button>
           </span>
         </div>
-        <label class="settings-check"><input v-model="settings.autoDownload" type="checkbox" /><span><strong>完成后自动下载</strong><small>写入临时文件后原子落盘，并记录 SHA-256。</small></span></label>
+        <div class="storage-row"><span>生成结果</span><span>完成后立即保存到本机并记录 SHA-256</span></div>
         <div class="storage-row">
           <span>版本 {{ appInfo.version || '…' }}<template v-if="appInfo.arch"> · {{ appInfo.arch }}</template></span>
           <span class="storage-row-actions">
@@ -5441,7 +4775,7 @@ removePsdProgressListener?.()
             </ol>
           </article>
         </div>
-        <p class="guide-note"><AlertCircle :size="14" /> 单次生成最多使用 4 张参考图；积分以提交前显示为准。</p>
+        <p class="guide-note"><AlertCircle :size="14" /> 单次请求最多使用 4 张参考图；结果会在生成后立即保存到本机。</p>
       </section>
     </div>
   </div>

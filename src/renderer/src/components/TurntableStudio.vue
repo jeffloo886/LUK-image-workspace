@@ -15,7 +15,7 @@ import type { WorkflowSubmission } from './WorkflowStudio.vue'
 import { TURNTABLE_ANGLES, buildTurntablePrompt, parseTurntableAngle, turntableAngleTitle } from '../turntableAngles'
 import { exportTurntableWebm } from '../turntableExport'
 
-type Option = { label: string; value: string; credits?: number | null }
+type Option = { label: string; value: string }
 type Provider = {
   id: number
   label: string
@@ -23,8 +23,6 @@ type Provider = {
   sizeOptions: Option[]
   qualityOptions: Option[]
   resolutionOptions: Option[]
-  priceMatrix?: Record<string, Record<string, Record<string, number>>>
-  referenceImageCredits?: number
 }
 
 type TurntableTaskSnapshot = {
@@ -94,26 +92,9 @@ const activeProvider = computed(() =>
   turntableProviders.value.find((item) => item.id === providerId.value) || turntableProviders.value[0] || null
 )
 const filledExtras = computed(() => extraSlots.value.filter((item): item is DesktopSelectedImage => Boolean(item)))
-const refCount = computed(() => Math.min(4, 1 + filledExtras.value.length))
 const providerMissing = computed(() => turntableProviders.value.length === 0)
 const providerLockedLabel = computed(() => activeProvider.value?.label || '未配置线路')
 
-const unitCost = computed(() => {
-  const provider = activeProvider.value
-  if (!provider) return 0
-  const matrixCost = Number(provider.priceMatrix?.[size.value]?.[resolution.value]?.[quality.value])
-  const base = Number.isFinite(matrixCost) && matrixCost > 0
-    ? matrixCost
-    : Number(
-        provider.resolutionOptions.find((item) => item.value === resolution.value)?.credits
-        ?? provider.qualityOptions.find((item) => item.value === quality.value)?.credits
-        ?? provider.sizeOptions.find((item) => item.value === size.value)?.credits
-        ?? 49
-      )
-  const refs = refCount.value * Number(provider.referenceImageCredits || 0)
-  return Math.max(0, base) + refs
-})
-const totalCost = computed(() => unitCost.value * TURNTABLE_ANGLES.length)
 const canSubmit = computed(() => Boolean(product.value) && Boolean(activeProvider.value) && !props.submitting && !providerMissing.value)
 
 function syncTurntableProvider(): void {
@@ -573,12 +554,12 @@ async function exportVideo(): Promise<void> {
           <button class="submit-btn" type="button" :disabled="!canSubmit" @click="submitTurntable">
             <LoaderCircle v-if="submitting" :size="16" class="spin" />
             <Clapperboard v-else :size="16" />
-            {{ submitting ? '提交中…' : `生成 8 视角 · ${totalCost} 积分` }}
+            {{ submitting ? '提交中…' : 'Generate 8 angles · provider billed separately' }}
           </button>
         </div>
-        <p v-if="providerMissing" class="error">当前没有可用生图线路，请先在后台开启。</p>
+        <p v-if="providerMissing" class="error">请先在 Settings 配置 API URL、Key 和 Image2 model。</p>
         <p v-if="pickerError" class="error">{{ pickerError }}</p>
-        <p class="hint">测试期锁定线路「{{ providerLockedLabel }}」（C 端展示名；布里塔是上游）。单视角约 {{ unitCost }} 积分。</p>
+        <p class="hint">{{ providerLockedLabel }} · 8 requests are sent directly to your configured provider and saved locally。</p>
       </div>
     </section>
   </div>
