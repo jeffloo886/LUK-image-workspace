@@ -1,0 +1,12 @@
+node_modules/
+.npm-cache/
+out/
+build/release/
+resources/vision-helper/bin/
+resources/ai-models/
+.tmp/
+*.log
+.DS_Store
+update-private-key.pem
+update-private-key.b64
+resources/speech-helper/bin/

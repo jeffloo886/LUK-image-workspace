@@ -1,0 +1,107 @@
+{
+  "name": "luk-image-workspace",
+  "version": "0.2.0",
+  "description": "AI Image Workspace — desktop image generation studio for macOS (Electron + Vue)",
+  "private": true,
+  "type": "module",
+  "main": "./out/main/index.js",
+  "scripts": {
+    "dev": "electron-vite dev",
+    "build:vision": "xcrun clang -fobjc-arc -O2 -mmacosx-version-min=14.0 resources/vision-helper/VisionSegmenter.m -o resources/vision-helper/bin/VisionSegmenter -framework Foundation -framework Vision -framework CoreImage -framework ImageIO -framework CoreGraphics -framework CoreVideo",
+    "build:speech": "xcrun clang -fobjc-arc -O2 -mmacosx-version-min=14.0 resources/speech-helper/SpeechRecognizer.m -o resources/speech-helper/bin/SpeechRecognizer -framework Foundation -framework Speech -framework AVFoundation",
+    "download:models": "node scripts/download-models.mjs",
+    "build": "npm run download:models && npm run build:vision && npm run build:speech && vue-tsc --noEmit && electron-vite build",
+    "preview": "electron-vite preview",
+    "package:arm64": "npm run build && electron-builder --mac --arm64 --dir",
+    "dist:arm64": "npm run build && electron-builder --mac --arm64",
+    "gen-update-key": "node scripts/gen-update-key.mjs",
+    "release": "node scripts/release.mjs"
+  },
+  "dependencies": {
+    "ag-psd": "^31.0.2",
+    "onnxruntime-node": "^1.27.0",
+    "sharp": "^0.35.3"
+  },
+  "//dependencies": "只有主进程运行时真正 require 的原生/重型模块才放这里 —— electron-builder 只收集 production deps 进 asar。vue/lucide/qrcode 是 renderer-only，已被 vite 打进 out/，放这里会白白多打 38MB。",
+  "devDependencies": {
+    "@electron/fuses": "^2.1.3",
+    "@types/qrcode": "^1.5.6",
+    "@vitejs/plugin-vue": "^6.0.2",
+    "lucide-vue-next": "^0.511.0",
+    "qrcode": "^1.5.4",
+    "vue": "^3.5.26",
+    "electron": "^37.2.3",
+    "electron-builder": "^26.0.12",
+    "electron-vite": "^4.0.0",
+    "typescript": "^5.9.3",
+    "vite": "^7.2.7",
+    "vue-tsc": "^3.1.8"
+  },
+  "build": {
+    "appId": "com.luk.image-workspace",
+    "productName": "AI 图像工作台",
+    "asar": true,
+    "asarUnpack": [
+      "node_modules/sharp/**/*",
+      "node_modules/@img/**/*",
+      "node_modules/onnxruntime-node/**/*"
+    ],
+    "directories": {
+      "output": "build/release"
+    },
+    "afterPack": "scripts/after-pack.mjs",
+    "files": [
+      "out/**/*",
+      "package.json",
+      "!node_modules/@img/sharp-wasm32/**",
+      "!node_modules/onnxruntime-node/bin/napi-v6/linux/**",
+      "!node_modules/onnxruntime-node/bin/napi-v6/win32/**",
+      "!node_modules/onnxruntime-node/script/**",
+      "!node_modules/onnxruntime-node/lib/**",
+      "!node_modules/onnxruntime-node/node_modules/**",
+      "!node_modules/ag-psd/src/**",
+      "!node_modules/ag-psd/dist-es/**",
+      "!node_modules/**/.v8-cache/**",
+      "!node_modules/**/*.{map,md,markdown}"
+    ],
+    "extraResources": [
+      {
+        "from": "resources/vision-helper/bin/VisionSegmenter",
+        "to": "vision-helper/VisionSegmenter"
+      },
+      {
+        "from": "resources/speech-helper/bin/SpeechRecognizer",
+        "to": "speech-helper/SpeechRecognizer"
+      },
+      {
+        "from": "resources/ai-models",
+        "to": "ai-models"
+      }
+    ],
+    "mac": {
+      "category": "public.app-category.graphics-design",
+      "icon": "resources/icons/app-icon.png",
+      "extendInfo": {
+        "NSMicrophoneUsageDescription": "用于将您的语音转换成图片提示词。",
+        "NSSpeechRecognitionUsageDescription": "用于识别您的语音并填写图片提示词。"
+      },
+      "target": [
+        {
+          "target": "dmg",
+          "arch": [
+            "arm64"
+          ]
+        }
+      ],
+      "electronLanguages": [
+        "en",
+        "zh_CN"
+      ],
+      "identity": null
+    },
+    "dmg": {
+      "title": "AI 图像工作台 ${version}",
+      "artifactName": "AI-Image-Workspace-${version}-${arch}.${ext}"
+    }
+  }
+}

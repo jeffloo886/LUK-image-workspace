@@ -1,0 +1,485 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; frame-src https://www.photopea.com; img-src 'self' data: blob:; connect-src 'self' https://www.photopea.com;"
+    />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Photopea 编辑</title>
+    <style>
+      :root {
+        color-scheme: light dark;
+        --bg: #f3f2ee;
+        --panel: rgba(255, 255, 255, 0.92);
+        --text: #1f1f1c;
+        --muted: #6b6a64;
+        --line: rgba(31, 31, 28, 0.12);
+        --accent: #0f766e;
+        --danger: #b42318;
+        --shadow: 0 10px 30px rgba(20, 20, 16, 0.12);
+      }
+      :root[data-theme='dark'] {
+        --bg: #1c1c1a;
+        --panel: rgba(38, 38, 36, 0.96);
+        --text: #f4f3ee;
+        --muted: #a8a69e;
+        --line: rgba(244, 243, 238, 0.12);
+        --accent: #2dd4bf;
+        --danger: #f97066;
+        --shadow: 0 12px 32px rgba(0, 0, 0, 0.35);
+      }
+      * { box-sizing: border-box; }
+      html, body {
+        margin: 0;
+        width: 100%;
+        height: 100%;
+        overflow: hidden;
+        background: var(--bg);
+        color: var(--text);
+        font: 13px/1.4 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      }
+      #app {
+        display: grid;
+        grid-template-rows: 48px 1fr;
+        width: 100%;
+        height: 100%;
+      }
+      header {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 12px;
+        padding: 0 14px;
+        border-bottom: 1px solid var(--line);
+        background: var(--panel);
+        backdrop-filter: blur(12px);
+        -webkit-app-region: drag;
+      }
+      .meta {
+        min-width: 0;
+        display: flex;
+        flex-direction: column;
+        gap: 2px;
+      }
+      .meta strong {
+        font-size: 13px;
+        font-weight: 600;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+      }
+      .meta span {
+        color: var(--muted);
+        font-size: 11px;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+      }
+      .actions {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        -webkit-app-region: no-drag;
+      }
+      button {
+        appearance: none;
+        border: 1px solid var(--line);
+        background: transparent;
+        color: var(--text);
+        border-radius: 999px;
+        padding: 7px 12px;
+        font: inherit;
+        cursor: pointer;
+      }
+      button:hover:not(:disabled) { border-color: color-mix(in srgb, var(--accent) 50%, var(--line)); }
+      button:disabled { opacity: 0.5; cursor: default; }
+      button.primary {
+        background: var(--accent);
+        border-color: transparent;
+        color: #042f2e;
+        font-weight: 600;
+      }
+      :root:not([data-theme='dark']) button.primary { color: #fff; }
+      #stage {
+        position: relative;
+        min-height: 0;
+        background: #111;
+      }
+      iframe {
+        width: 100%;
+        height: 100%;
+        border: 0;
+        display: block;
+        background: #111;
+      }
+      .overlay {
+        position: absolute;
+        inset: 0;
+        display: grid;
+        place-items: center;
+        padding: 24px;
+        background: color-mix(in srgb, var(--bg) 88%, transparent);
+        z-index: 2;
+      }
+      .card {
+        width: min(420px, 100%);
+        padding: 22px 20px;
+        border-radius: 16px;
+        background: var(--panel);
+        border: 1px solid var(--line);
+        box-shadow: var(--shadow);
+        text-align: center;
+      }
+      .card h1 {
+        margin: 0 0 8px;
+        font-size: 16px;
+      }
+      .card p {
+        margin: 0;
+        color: var(--muted);
+      }
+      .card.error h1 { color: var(--danger); }
+      .spinner {
+        width: 28px;
+        height: 28px;
+        margin: 0 auto 12px;
+        border-radius: 50%;
+        border: 2px solid color-mix(in srgb, var(--accent) 25%, transparent);
+        border-top-color: var(--accent);
+        animation: spin 0.8s linear infinite;
+      }
+      @keyframes spin { to { transform: rotate(360deg); } }
+      .toast {
+        position: absolute;
+        left: 50%;
+        bottom: 18px;
+        transform: translateX(-50%);
+        z-index: 3;
+        padding: 10px 14px;
+        border-radius: 999px;
+        background: var(--panel);
+        border: 1px solid var(--line);
+        box-shadow: var(--shadow);
+        color: var(--text);
+        opacity: 0;
+        pointer-events: none;
+        transition: opacity 0.2s ease;
+      }
+      .toast.show { opacity: 1; }
+    </style>
+  </head>
+  <body>
+    <div id="app">
+      <header>
+        <div class="meta">
+          <strong id="title">正在打开 Photopea…</strong>
+          <span id="subtitle">本地文件不会上传到任何服务器</span>
+        </div>
+        <div class="actions">
+          <button id="btn-save-as" type="button" disabled>另存</button>
+          <button id="btn-save" class="primary" type="button" disabled>保存</button>
+          <button id="btn-close" type="button">关闭</button>
+        </div>
+      </header>
+      <div id="stage">
+        <iframe id="pp" title="Photopea" allow="clipboard-read; clipboard-write"></iframe>
+        <div id="overlay" class="overlay">
+          <div class="card" id="status-card">
+            <div class="spinner" id="spinner"></div>
+            <h1 id="status-title">正在加载编辑器</h1>
+            <p id="status-text">需要联网访问 photopea.com</p>
+          </div>
+        </div>
+        <div id="toast" class="toast"></div>
+      </div>
+    </div>
+    <script>
+      const PHOTOPEA_ORIGIN = 'https://www.photopea.com'
+      const titleEl = document.getElementById('title')
+      const subtitleEl = document.getElementById('subtitle')
+      const overlayEl = document.getElementById('overlay')
+      const statusCardEl = document.getElementById('status-card')
+      const statusTitleEl = document.getElementById('status-title')
+      const statusTextEl = document.getElementById('status-text')
+      const spinnerEl = document.getElementById('spinner')
+      const toastEl = document.getElementById('toast')
+      const frame = document.getElementById('pp')
+      const btnSave = document.getElementById('btn-save')
+      const btnSaveAs = document.getElementById('btn-save-as')
+      const btnClose = document.getElementById('btn-close')
+
+      /** @type {null | {
+       *  sessionId: string,
+       *  sourcePath: string,
+       *  fileName: string,
+       *  extension: string,
+       *  taskId: string,
+       *  theme: 'dark' | 'light',
+       *  bytes: ArrayBuffer
+       * }} */
+      let session = null
+      let peaReady = false
+      let documentLoaded = false
+      let busy = false
+      let toastTimer = 0
+      /** @type {'idle' | 'waiting-save' | 'waiting-load'} */
+      let waitMode = 'idle'
+      /** @type {null | { resolve: (value: any) => void, reject: (error: Error) => void, buffers: ArrayBuffer[], timer: number }} */
+      let pending = null
+
+      function showToast(message) {
+        toastEl.textContent = message
+        toastEl.classList.add('show')
+        window.clearTimeout(toastTimer)
+        toastTimer = window.setTimeout(() => toastEl.classList.remove('show'), 2200)
+      }
+
+      function setBusy(next) {
+        busy = next
+        btnSave.disabled = !documentLoaded || busy
+        btnSaveAs.disabled = !documentLoaded || busy
+      }
+
+      function showStatus(title, text, isError = false) {
+        overlayEl.style.display = 'grid'
+        statusTitleEl.textContent = title
+        statusTextEl.textContent = text
+        statusCardEl.classList.toggle('error', isError)
+        spinnerEl.style.display = isError ? 'none' : 'block'
+      }
+
+      function hideStatus() {
+        overlayEl.style.display = 'none'
+      }
+
+function buildConfig(theme) {
+        return {
+          environment: {
+            // 官方语言码：简体中文是 zh-Hans（不是 zh）
+            theme: theme === 'dark' ? 1 : 2,
+            lang: 'zh-Hans',
+            intro: false,
+            localsave: false,
+            customIO: {
+              open: 'app.echoToOE("OPEN");',
+              save: 'app.echoToOE("SAVE");',
+              saveAsPSD: 'app.echoToOE("SAVE_AS");'
+            }
+          }
+        }
+      }
+
+      function postToPea(message) {
+        const win = frame.contentWindow
+        if (!win) throw new Error('Photopea 尚未就绪')
+        win.postMessage(message, PHOTOPEA_ORIGIN)
+      }
+
+      function waitForPea(kind) {
+        if (pending) {
+          window.clearTimeout(pending.timer)
+          pending.reject(new Error('上一次操作未完成'))
+          pending = null
+        }
+        waitMode = kind
+        return new Promise((resolve, reject) => {
+          const timer = window.setTimeout(() => {
+            pending = null
+            waitMode = 'idle'
+            reject(new Error(kind === 'waiting-save' ? '保存超时，请重试' : '加载超时，请检查网络后重试'))
+          }, kind === 'waiting-save' ? 120000 : 90000)
+          pending = { resolve, reject, buffers: [], timer }
+        })
+      }
+
+      function finishPendingOk(value) {
+        if (!pending) return
+        window.clearTimeout(pending.timer)
+        const current = pending
+        pending = null
+        waitMode = 'idle'
+        current.resolve(value)
+      }
+
+      function finishPendingErr(error) {
+        if (!pending) return
+        window.clearTimeout(pending.timer)
+        const current = pending
+        pending = null
+        waitMode = 'idle'
+        current.reject(error)
+      }
+
+      async function loadDocument() {
+        if (!session) return
+        setBusy(true)
+        showStatus('正在载入文档', session.fileName)
+        try {
+          if (!peaReady) await waitForPea('waiting-load')
+const doneWait = waitForPea('waiting-load')
+          const copy = session.bytes.slice(0)
+          postToPea(copy)
+          await doneWait
+const source = JSON.stringify(session.sessionId)
+          const name = JSON.stringify(session.fileName)
+          postToPea(`app.activeDocument.source = ${source}; app.activeDocument.name = ${name}; app.echoToOE("LOADED");`)
+          documentLoaded = true
+          hideStatus()
+          showToast('文档已载入，可直接编辑')
+        } catch (error) {
+          const message = error instanceof Error ? error.message : '载入文档失败'
+          showStatus('无法载入文档', message, true)
+          window.photopeaHost?.reportError?.(message)
+        } finally {
+          setBusy(false)
+        }
+      }
+
+      async function applyBootstrap(payload) {
+        const bytes = payload?.bytes
+        let buffer = null
+        if (bytes instanceof ArrayBuffer) buffer = bytes
+        else if (bytes?.buffer instanceof ArrayBuffer) {
+          buffer = bytes.buffer.slice(bytes.byteOffset || 0, (bytes.byteOffset || 0) + (bytes.byteLength || 0))
+        }
+        if (!buffer || !payload?.sessionId) {
+          showStatus('打开失败', '未收到可编辑文件', true)
+          return
+        }
+        session = {
+          sessionId: String(payload.sessionId),
+          sourcePath: String(payload.sourcePath || ''),
+          fileName: String(payload.fileName || 'document.psd'),
+          extension: String(payload.extension || '.psd'),
+          taskId: String(payload.taskId || ''),
+          theme: payload.theme === 'dark' ? 'dark' : 'light',
+          bytes: buffer
+        }
+        document.documentElement.dataset.theme = session.theme
+        titleEl.textContent = session.fileName
+        subtitleEl.textContent = session.sourcePath || '本地工作区文件'
+        documentLoaded = false
+        peaReady = false
+        setBusy(true)
+        showStatus('正在加载编辑器', '首次打开需要联网下载 Photopea')
+        const config = buildConfig(session.theme)
+        frame.src = `${PHOTOPEA_ORIGIN}#${encodeURIComponent(JSON.stringify(config))}`
+      }
+
+      async function saveDocument(mode) {
+        if (!session || !documentLoaded || busy) return
+        setBusy(true)
+        showStatus(mode === 'saveAs' ? '正在另存' : '正在保存', '导出 PSD 并写回工作区')
+        try {
+          const wait = waitForPea('waiting-save')
+          postToPea('app.activeDocument.saveToOE("psd"); app.echoToOE("SAVE_DONE");')
+          const buffer = await wait
+          if (!(buffer instanceof ArrayBuffer) || !buffer.byteLength) {
+            throw new Error('未收到导出数据')
+          }
+          const result = await window.photopeaHost.save({
+            sessionId: session.sessionId,
+            bytes: buffer,
+            mode,
+            format: 'psd'
+          })
+          if (result?.path) {
+            session.sourcePath = result.path
+            session.fileName = String(result.path).split(/[/\\]/).pop() || session.fileName
+            titleEl.textContent = session.fileName
+            subtitleEl.textContent = result.path
+          }
+          hideStatus()
+          showToast(result?.mode === 'saveAs' ? '已另存到工作区' : '已保存到工作区')
+        } catch (error) {
+          const message = error instanceof Error ? error.message : '保存失败'
+          showStatus('保存失败', message, true)
+          window.photopeaHost?.reportError?.(message)
+        } finally {
+          setBusy(false)
+        }
+      }
+
+      window.addEventListener('message', (event) => {
+        if (event.origin !== PHOTOPEA_ORIGIN) return
+        const data = event.data
+
+        if (typeof data === 'string') {
+          if (data === 'done') {
+            if (waitMode === 'waiting-load') {
+              if (!peaReady) {
+                peaReady = true
+                // 首个 done：编辑器就绪；若已有 session 且尚未塞文件，继续 loadDocument 流程里的 wait
+                if (pending && pending.buffers.length === 0) finishPendingOk(true)
+              } else if (pending) {
+                finishPendingOk(true)
+              }
+            } else if (waitMode === 'waiting-save' && pending) {
+              const buffer = pending.buffers[pending.buffers.length - 1]
+              if (buffer) finishPendingOk(buffer)
+            }
+            return
+          }
+          if (data === 'SAVE' || data === 'SAVE_AS') {
+            void saveDocument(data === 'SAVE_AS' ? 'saveAs' : 'overwrite')
+            return
+          }
+          if (data === 'OPEN') {
+            showToast('请从 AI 图像工作台打开文件')
+            return
+          }
+          if (data === 'LOADED' || data === 'SAVE_DONE') return
+          return
+        }
+
+        if (data instanceof ArrayBuffer) {
+          if (waitMode === 'waiting-save' && pending) pending.buffers.push(data)
+          return
+        }
+        if (ArrayBuffer.isView?.(data)) {
+          if (waitMode === 'waiting-save' && pending) {
+            pending.buffers.push(data.buffer.slice(data.byteOffset, data.byteOffset + data.byteLength))
+          }
+        }
+      })
+
+      btnSave.addEventListener('click', () => { void saveDocument('overwrite') })
+      btnSaveAs.addEventListener('click', () => { void saveDocument('saveAs') })
+      btnClose.addEventListener('click', () => { void window.photopeaHost?.close?.() })
+
+      frame.addEventListener('load', () => {
+        // 空 src 的首次 load 忽略
+        if (!frame.src || frame.src === 'about:blank') return
+      })
+
+      let bootstrappedSessionId = ''
+      async function startSession(payload) {
+        if (!payload?.sessionId || payload.sessionId === bootstrappedSessionId) return
+        bootstrappedSessionId = String(payload.sessionId)
+        await applyBootstrap(payload)
+        await loadDocument()
+      }
+
+      async function boot() {
+        if (!window.photopeaHost) {
+          showStatus('初始化失败', 'Photopea 宿主桥接不可用', true)
+          return
+        }
+        window.photopeaHost.onBootstrap((payload) => {
+          void startSession(payload)
+        })
+        try {
+          const payload = await window.photopeaHost.ready()
+          if (payload) await startSession(payload)
+        } catch (error) {
+          const message = error instanceof Error ? error.message : '宿主初始化失败'
+          showStatus('初始化失败', message, true)
+        }
+      }
+
+      void boot()
+    </script>
+  </body>
+</html>
