@@ -52,7 +52,7 @@ export async function segmentSubject(input: {
     .raw()
     .toBuffer({ resolveWithObject: true })
   if (info.channels !== 1 || restored.length !== input.width * input.height) {
-    throw new Error(`分割蒙版通道异常：channels=${info.channels} length=${restored.length}`)
+    throw new Error(`Segmentation mask channel mismatch: channels=${info.channels} length=${restored.length}`)
   }
   return new Uint8Array(restored)
 }

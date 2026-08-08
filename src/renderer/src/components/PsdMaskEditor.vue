@@ -57,11 +57,11 @@ const canUndo = ref(false)
 const MAX_UNDO = 40
 let strokeSnapshotTaken = false
 
-const layerLabel = computed(() => (layer.value === 'subject' ? '主体' : '道具'))
+const layerLabel = computed(() => (layer.value === 'subject' ? 'Subject' : 'Prop'))
 const hint = computed(() =>
   layer.value === 'subject'
-    ? '涂抹补漏（裙边/头发），橡皮去掉误选（奖杯不要进主体）'
-    : '涂抹补全奖杯，橡皮去掉金流/碎金'
+    ? 'Paint missing edges (hem or hair); erase mistakes. Keep the trophy out of the subject layer.'
+    : 'Paint in the trophy; erase gold streaks or fragments.'
 )
 const brushPreviewPx = computed(() => Math.max(6, brushSize.value * scale.value))
 
@@ -91,7 +91,7 @@ async function loadImage(url: string): Promise<HTMLImageElement> {
   return new Promise((resolve, reject) => {
     const img = new Image()
     img.onload = () => resolve(img)
-    img.onerror = () => reject(new Error('图片加载失败'))
+    img.onerror = () => reject(new Error('Failed to load the image'))
     img.src = url
   })
 }
@@ -385,63 +385,63 @@ onBeforeUnmount(() => {
   <div class="psd-mask-editor">
     <header class="psd-mask-bar">
       <div class="psd-mask-title">
-        <strong>修蒙版</strong>
-        <span>AI 初稿 · 涂抹后导出 · ⌘Z 撤销</span>
+        <strong>Refine masks</strong>
+        <span>AI draft · paint to refine · ⌘Z undo</span>
       </div>
       <div class="psd-mask-actions">
         <button type="button" class="ghost-btn" :disabled="exporting || !canUndo" title="⌘Z" @click="undo">
-          <Undo2 :size="14" /> 撤销
+          <Undo2 :size="14" /> Undo
         </button>
         <button type="button" class="ghost-btn" :disabled="exporting" @click="emit('cancel')">
-          <X :size="14" /> 取消
+          <X :size="14" /> Cancel
         </button>
         <button type="button" class="ghost-btn" :disabled="exporting" @click="resetMasks">
-          <RotateCcw :size="14" /> 恢复 AI
+          <RotateCcw :size="14" /> Reset AI
         </button>
         <button type="button" class="primary-btn" :disabled="exporting || !ready" @click="confirmExport">
           <LoaderCircle v-if="exporting" :size="14" class="spin" />
           <Check v-else :size="14" />
-          {{ exporting ? '导出中…' : '确认导出 PSD' }}
+          {{ exporting ? 'Exporting…' : 'Export PSD' }}
         </button>
       </div>
     </header>
 
     <div class="psd-mask-tools">
       <div class="tool-group">
-        <span class="tool-label">图层</span>
-        <button type="button" :class="{ active: layer === 'subject' }" @click="layer = 'subject'">1 主体</button>
-        <button type="button" :class="{ active: layer === 'prop' }" @click="layer = 'prop'">2 道具</button>
+        <span class="tool-label">Layers</span>
+        <button type="button" :class="{ active: layer === 'subject' }" @click="layer = 'subject'">1 Subject</button>
+        <button type="button" :class="{ active: layer === 'prop' }" @click="layer = 'prop'">2 Prop</button>
       </div>
       <div class="tool-group">
-        <span class="tool-label">工具</span>
+        <span class="tool-label">Tools</span>
         <button type="button" :class="{ active: tool === 'paint' }" @click="tool = 'paint'">
-          <Paintbrush :size="14" /> 涂抹 B
+          <Paintbrush :size="14" /> Paint B
         </button>
         <button type="button" :class="{ active: tool === 'erase' }" @click="tool = 'erase'">
-          <Eraser :size="14" /> 橡皮 E
+          <Eraser :size="14" /> Erase E
         </button>
       </div>
       <label class="tool-slider">
-        笔刷 {{ brushSize }}
+        Brush {{ brushSize }}
         <input v-model.number="brushSize" type="range" min="4" max="120" step="2" />
         <!-- 旁路静态预览环，改滑条时立刻看到大小 -->
         <span
           class="brush-size-chip"
           :class="[tool, layer]"
           :style="{ width: `${Math.max(10, brushSize * 0.55)}px`, height: `${Math.max(10, brushSize * 0.55)}px` }"
-          :title="`笔刷 ${brushSize}px`"
+          :title="`Brush ${brushSize}px`"
         />
       </label>
       <label class="tool-slider">
-        蒙版浓度
+        Mask opacity
         <input v-model.number="overlayOpacity" type="range" min="0.12" max="0.65" step="0.02" />
       </label>
     </div>
 
     <div class="psd-mask-hint">
       <span class="hint-tag" :class="layer">{{ layerLabel }}</span>
-      <span class="hint-tag tool">{{ tool === 'paint' ? '涂抹' : '橡皮' }}</span>
-      <span class="hint-text">{{ hint }} · 画布上圆环 = 笔刷实际大小</span>
+      <span class="hint-tag tool">{{ tool === 'paint' ? 'Paint' : 'Erase' }}</span>
+      <span class="hint-text">{{ hint }} · The ring on the canvas shows the actual brush size.</span>
     </div>
 
     <div
@@ -470,7 +470,7 @@ onBeforeUnmount(() => {
           top: `${cursorY}px`
         }"
       />
-      <div v-if="!ready" class="psd-mask-loading">加载蒙版…</div>
+      <div v-if="!ready" class="psd-mask-loading">Loading masks…</div>
     </div>
   </div>
 </template>

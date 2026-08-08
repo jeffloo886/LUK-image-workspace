@@ -68,7 +68,7 @@ export async function checkAiModels(directory: string): Promise<AiModelStatus> {
   for (const model of AI_MODEL_LIST) {
     try {
       const info = await stat(path.join(directory, model.file))
-      if (info.size !== model.size) missing.push(`${model.file}（文件不完整）`)
+      if (info.size !== model.size) missing.push(`${model.file} (incomplete file)`)
     } catch {
       missing.push(model.file)
     }

@@ -3,9 +3,9 @@ import { contextBridge, ipcRenderer } from 'electron'
 contextBridge.exposeInMainWorld('desktop', {
   getInfo: () => ipcRenderer.invoke('desktop:get-info'),
   getSettings: () => ipcRenderer.invoke('desktop:get-settings'),
-  getSession: () => ipcRenderer.invoke('desktop:get-session'),
-  saveSession: (value: unknown) => ipcRenderer.invoke('desktop:save-session', value),
-  clearSession: () => ipcRenderer.invoke('desktop:clear-session'),
+  getProviderConfig: () => ipcRenderer.invoke('desktop:get-provider-config'),
+  saveProviderConfig: (value: unknown) => ipcRenderer.invoke('desktop:save-provider-config', value),
+  testProviderConnection: () => ipcRenderer.invoke('desktop:test-provider-connection'),
   saveSettings: (value: unknown) => ipcRenderer.invoke('desktop:save-settings', value),
   requestMicrophoneAccess: () => ipcRenderer.invoke('desktop:request-microphone-access'),
   chooseOutputDirectory: () => ipcRenderer.invoke('desktop:choose-output'),
@@ -19,6 +19,7 @@ contextBridge.exposeInMainWorld('desktop', {
   cacheLocalCropScene: (payload: unknown) => ipcRenderer.invoke('desktop:cache-local-crop-scene', payload),
   compositeLocalCrop: (payload: unknown) => ipcRenderer.invoke('desktop:composite-local-crop', payload),
   readLocalCropPreview: (filePath: string) => ipcRenderer.invoke('desktop:read-local-crop-preview', filePath),
+  readSavedResultPreview: (filePath: string) => ipcRenderer.invoke('desktop:read-saved-result-preview', filePath),
   findLocalCropComposite: (taskId: number) => ipcRenderer.invoke('desktop:find-local-crop-composite', taskId),
   apiRequest: (payload: unknown) => ipcRenderer.invoke('desktop:api-request', payload),
   downloadResult: (payload: { url: string; taskId: number; index: number }) =>

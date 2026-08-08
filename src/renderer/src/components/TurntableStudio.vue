@@ -15,7 +15,7 @@ import type { WorkflowSubmission } from './WorkflowStudio.vue'
 import { TURNTABLE_ANGLES, buildTurntablePrompt, parseTurntableAngle, turntableAngleTitle } from '../turntableAngles'
 import { exportTurntableWebm } from '../turntableExport'
 
-type Option = { label: string; value: string; credits?: number | null }
+type Option = { label: string; value: string }
 type Provider = {
   id: number
   label: string
@@ -23,8 +23,6 @@ type Provider = {
   sizeOptions: Option[]
   qualityOptions: Option[]
   resolutionOptions: Option[]
-  priceMatrix?: Record<string, Record<string, Record<string, number>>>
-  referenceImageCredits?: number
 }
 
 type TurntableTaskSnapshot = {
@@ -94,26 +92,9 @@ const activeProvider = computed(() =>
   turntableProviders.value.find((item) => item.id === providerId.value) || turntableProviders.value[0] || null
 )
 const filledExtras = computed(() => extraSlots.value.filter((item): item is DesktopSelectedImage => Boolean(item)))
-const refCount = computed(() => Math.min(4, 1 + filledExtras.value.length))
 const providerMissing = computed(() => turntableProviders.value.length === 0)
-const providerLockedLabel = computed(() => activeProvider.value?.label || '未配置线路')
+const providerLockedLabel = computed(() => activeProvider.value?.label || 'No provider configured')
 
-const unitCost = computed(() => {
-  const provider = activeProvider.value
-  if (!provider) return 0
-  const matrixCost = Number(provider.priceMatrix?.[size.value]?.[resolution.value]?.[quality.value])
-  const base = Number.isFinite(matrixCost) && matrixCost > 0
-    ? matrixCost
-    : Number(
-        provider.resolutionOptions.find((item) => item.value === resolution.value)?.credits
-        ?? provider.qualityOptions.find((item) => item.value === quality.value)?.credits
-        ?? provider.sizeOptions.find((item) => item.value === size.value)?.credits
-        ?? 49
-      )
-  const refs = refCount.value * Number(provider.referenceImageCredits || 0)
-  return Math.max(0, base) + refs
-})
-const totalCost = computed(() => unitCost.value * TURNTABLE_ANGLES.length)
 const canSubmit = computed(() => Boolean(product.value) && Boolean(activeProvider.value) && !props.submitting && !providerMissing.value)
 
 function syncTurntableProvider(): void {
@@ -196,7 +177,7 @@ const angleSlots = computed<AngleSlot[]>(() => {
       status,
       preview,
       taskId: task.id,
-      error: status === 'failed' ? '生成失败' : undefined
+      error: status === 'failed' ? 'Generation failed' : undefined
     }
   })
 })
@@ -279,23 +260,23 @@ async function ensureFrameDataUrl(angle: number): Promise<string> {
 async function chooseProduct(): Promise<void> {
   pickerError.value = ''
   try {
-    const selected = await window.desktop?.selectWorkflowImages({ limit: 1, title: '选择商品主图' }) || []
+    const selected = await window.desktop?.selectWorkflowImages({ limit: 1, title: 'Choose product hero image' }) || []
     if (selected[0]) product.value = selected[0]
   } catch (error) {
-    pickerError.value = error instanceof Error ? error.message : '选择图片失败'
+    pickerError.value = error instanceof Error ? error.message : 'Failed to choose the image'
   }
 }
 
 async function chooseExtraAt(slot: number): Promise<void> {
   pickerError.value = ''
   try {
-    const selected = await window.desktop?.selectWorkflowImages({ limit: 1, title: '选择辅助参考图' }) || []
+    const selected = await window.desktop?.selectWorkflowImages({ limit: 1, title: 'Choose supporting reference image' }) || []
     if (!selected[0]) return
     const next = extraSlots.value.slice()
     next[slot] = selected[0]
     extraSlots.value = next
   } catch (error) {
-    pickerError.value = error instanceof Error ? error.message : '选择图片失败'
+    pickerError.value = error instanceof Error ? error.message : 'Failed to choose the image'
   }
 }
 
@@ -314,11 +295,11 @@ function submitTurntable(): void {
   exportMessage.value = ''
   syncTurntableProvider()
   if (providerMissing.value || !activeProvider.value) {
-    pickerError.value = '当前没有可用生图线路，请先在后台开启'
+    pickerError.value = 'No image provider is available. Configure one in Settings first.'
     return
   }
   if (!product.value) {
-    pickerError.value = '请先选择商品主图'
+    pickerError.value = 'Choose a product hero image first'
     return
   }
   const extras = filledExtras.value
@@ -330,7 +311,7 @@ function submitTurntable(): void {
   batchStartedAt.value = Date.now()
   previewIndex.value = 0
   frameDataUrls.value = {}
-  emit('begin', { prompt: '一键带货转台生成中…' })
+  emit('begin', { prompt: 'Generating turntable views…' })
   emit('submit', {
     kind: 'sellVideo',
     items,
@@ -403,20 +384,20 @@ async function exportVideo(): Promise<void> {
       const dataUrl = await ensureFrameDataUrl(angle)
       if (dataUrl) urls.push(dataUrl)
     }
-    if (urls.length < 2) throw new Error('可用视角不足，请等待生成完成')
+    if (urls.length < 2) throw new Error('Fewer than two usable angles are ready. Wait for generation to finish.')
     const blob = await exportTurntableWebm({ frameDataUrls: urls, frameMs: 120, loops: 3 })
     const bytes = await blob.arrayBuffer()
-    if (!window.desktop?.writeWorkspaceFile) throw new Error('当前环境无法写入工作区')
+    if (!window.desktop?.writeWorkspaceFile) throw new Error('This environment cannot write to the workspace')
     const stamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19)
     const saved = await window.desktop.writeWorkspaceFile({
       name: `turntable-${stamp}`,
       extension: '.webm',
       bytes
     })
-    exportMessage.value = `已保存 ${saved.path}`
-    void window.desktop.notify?.({ title: '转台视频已导出', body: saved.path })
+    exportMessage.value = `Saved to ${saved.path}`
+    void window.desktop.notify?.({ title: 'Turntable video exported', body: saved.path })
   } catch (error) {
-    exportMessage.value = error instanceof Error ? error.message : '导出失败'
+    exportMessage.value = error instanceof Error ? error.message : 'Export failed'
   } finally {
     exporting.value = false
   }
@@ -435,12 +416,12 @@ async function exportVideo(): Promise<void> {
           @pointerup="onPreviewPointerUp"
           @pointercancel="onPreviewPointerUp"
         >
-          <img v-if="currentPreview" :src="currentPreview" alt="转台预览" draggable="false" />
+          <img v-if="currentPreview" :src="currentPreview" alt="Turntable preview" draggable="false" />
           <div v-else class="preview-empty">
             <RotateCcw :size="28" />
-            <p>上传商品主图并生成后，在这里左右拖动切换视角</p>
+            <p>Choose a product hero image and generate views, then drag here to change angles.</p>
           </div>
-          <div v-if="readyCount >= 2" class="preview-hint">← 按住左右拖动旋转 →</div>
+          <div v-if="readyCount >= 2" class="preview-hint">← Drag left or right to rotate →</div>
           <div v-if="readyCount" class="preview-meta">
             {{ angleSlots[previewIndex]?.angle }}° · {{ readyCount }}/{{ TURNTABLE_ANGLES.length }}
           </div>
@@ -448,7 +429,7 @@ async function exportVideo(): Promise<void> {
         <div class="preview-actions">
           <button type="button" class="ghost-btn primary-action" :disabled="readyCount < 2" @click="autoSpin = !autoSpin">
             <component :is="autoSpin ? Pause : Play" :size="14" />
-            {{ autoSpin ? '停止自动转' : '自动慢转' }}
+            {{ autoSpin ? 'Stop auto-spin' : 'Auto-spin' }}
           </button>
           <button
             v-if="batchStartedAt"
@@ -457,22 +438,22 @@ async function exportVideo(): Promise<void> {
             @click="resetSession"
           >
             <RotateCcw :size="14" />
-            重置会话
+            Reset session
           </button>
           <button type="button" class="ghost-btn quiet" :disabled="!canExport" @click="exportVideo">
             <LoaderCircle v-if="exporting" :size="14" class="spin" />
             <Download v-else :size="14" />
-            {{ exporting ? '导出中…' : '可选：导出短视频' }}
+            {{ exporting ? 'Exporting…' : 'Optional: export video' }}
           </button>
         </div>
-        <p class="drag-tip">主交互是上面大图：按住拖动即可转；下面 8 张也能点选。短视频只是可选导出。</p>
+        <p class="drag-tip">Drag the large preview to rotate; you can also select one of the eight frames below. Video export is optional.</p>
         <p v-if="exportMessage" class="export-msg">{{ exportMessage }}</p>
       </section>
 
       <section class="angle-grid">
         <div class="section-title">
-          <strong>8 个环绕视角</strong>
-          <span>每帧强制不同相机方位；点选或大图拖动预览</span>
+          <strong>8 turntable angles</strong>
+          <span>Each frame uses a different camera position. Select a frame or drag the large preview.</span>
         </div>
         <div class="angles">
           <button
@@ -483,19 +464,19 @@ async function exportVideo(): Promise<void> {
             :class="[slot.status, { active: previewIndex === index }]"
             @click="selectAngle(index)"
           >
-            <img v-if="slot.preview" :src="slot.preview" :alt="`${slot.angle}度`" />
+            <img v-if="slot.preview" :src="slot.preview" :alt="`${slot.angle} degrees`" />
             <span v-else class="angle-placeholder">{{ slot.angle }}°</span>
             <span class="angle-badge">{{ turntableAngleTitle(slot.angle) }}</span>
-            <span v-if="slot.status === 'running' || slot.status === 'queued'" class="angle-state">生成中</span>
-            <span v-else-if="slot.status === 'failed'" class="angle-state fail">失败</span>
+            <span v-if="slot.status === 'running' || slot.status === 'queued'" class="angle-state">Generating</span>
+            <span v-else-if="slot.status === 'failed'" class="angle-state fail">Failed</span>
           </button>
         </div>
       </section>
 
       <section class="source-block">
         <div class="section-title">
-          <strong>商品主图</strong>
-          <span>必填 · 建议白底单主体</span>
+          <strong>Product hero image</strong>
+          <span>Required · A single subject on a clean background works best</span>
         </div>
         <div class="source-row">
           <div
@@ -511,7 +492,7 @@ async function exportVideo(): Promise<void> {
             </template>
             <template v-else>
               <ImagePlus :size="18" />
-              <span>主图</span>
+              <span>Hero image</span>
             </template>
           </div>
           <div
@@ -529,7 +510,7 @@ async function exportVideo(): Promise<void> {
             </template>
             <template v-else>
               <Plus :size="16" />
-              <span>辅助 {{ slot + 1 }}</span>
+              <span>Reference {{ slot + 1 }}</span>
             </template>
           </div>
         </div>
@@ -542,30 +523,30 @@ async function exportVideo(): Promise<void> {
           v-model="extraNotes"
           class="notes"
           rows="2"
-          placeholder="可选补充要求，例如：保留瓶身银色泵头，背景纯白…"
+          placeholder="Optional notes, for example: keep the silver pump and use a pure white background…"
         />
         <div class="composer-row">
           <label>
-            线路
+            Provider
             <select v-model.number="providerId" disabled>
               <option v-for="item in turntableProviders" :key="item.id" :value="item.id">{{ item.label }}</option>
-              <option v-if="providerMissing" :value="0">未配置线路</option>
+              <option v-if="providerMissing" :value="0">No provider configured</option>
             </select>
           </label>
           <label>
-            比例
+            Aspect ratio
             <select v-model="size">
               <option v-for="item in activeProvider?.sizeOptions || []" :key="item.value" :value="item.value">{{ item.label }}</option>
             </select>
           </label>
           <label>
-            质量
+            Quality
             <select v-model="quality">
               <option v-for="item in activeProvider?.qualityOptions || []" :key="item.value" :value="item.value">{{ item.label }}</option>
             </select>
           </label>
           <label>
-            分辨率
+            Resolution
             <select v-model="resolution">
               <option v-for="item in activeProvider?.resolutionOptions || []" :key="item.value" :value="item.value">{{ item.label }}</option>
             </select>
@@ -573,12 +554,12 @@ async function exportVideo(): Promise<void> {
           <button class="submit-btn" type="button" :disabled="!canSubmit" @click="submitTurntable">
             <LoaderCircle v-if="submitting" :size="16" class="spin" />
             <Clapperboard v-else :size="16" />
-            {{ submitting ? '提交中…' : `生成 8 视角 · ${totalCost} 积分` }}
+            {{ submitting ? 'Submitting…' : 'Generate 8 angles · provider billed separately' }}
           </button>
         </div>
-        <p v-if="providerMissing" class="error">当前没有可用生图线路，请先在后台开启。</p>
+        <p v-if="providerMissing" class="error">Add an API URL, key, and Image2 model in Settings first.</p>
         <p v-if="pickerError" class="error">{{ pickerError }}</p>
-        <p class="hint">测试期锁定线路「{{ providerLockedLabel }}」（C 端展示名；布里塔是上游）。单视角约 {{ unitCost }} 积分。</p>
+        <p class="hint">{{ providerLockedLabel }} · 8 requests go directly to your configured provider and are saved locally.</p>
       </div>
     </section>
   </div>

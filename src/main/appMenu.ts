@@ -1,5 +1,5 @@
 /*
- * 中文应用菜单。此前完全没有 setApplicationMenu，Electron 默认菜单的「帮助」里
+ * English application menu. Previously there was no setApplicationMenu, so Electron's default Help menu
  * 还挂着 electronjs.org 的链接，很掉价。这里补上标准 macOS 菜单与快捷键，并把
  * 「设置 ⌘,」「检查更新」桥回渲染层。
  */
@@ -19,74 +19,74 @@ export function buildApplicationMenu(getWindow: () => BrowserWindow | null, acti
     {
       label: appName,
       submenu: [
-        { role: 'about', label: `关于 ${appName}` },
-        { label: '检查更新…', click: () => actions.checkForUpdates() },
+        { role: 'about', label: `About ${appName}` },
+        { label: 'Check for Updates…', click: () => actions.checkForUpdates() },
         { type: 'separator' },
-        { label: '设置…', accelerator: 'Cmd+,', click: () => actions.openSettings() },
+        { label: 'Settings…', accelerator: 'Cmd+,', click: () => actions.openSettings() },
         { type: 'separator' },
-        { role: 'services', label: '服务' },
+        { role: 'services', label: 'Services' },
         { type: 'separator' },
-        { role: 'hide', label: `隐藏 ${appName}` },
-        { role: 'hideOthers', label: '隐藏其他' },
-        { role: 'unhide', label: '全部显示' },
+        { role: 'hide', label: `Hide ${appName}` },
+        { role: 'hideOthers', label: 'Hide Others' },
+        { role: 'unhide', label: 'Show All' },
         { type: 'separator' },
-        { role: 'quit', label: `退出 ${appName}` }
+        { role: 'quit', label: `Quit ${appName}` }
       ]
     },
     {
-      label: '编辑',
+      label: 'Edit',
       submenu: [
-        { role: 'undo', label: '撤销' },
-        { role: 'redo', label: '重做' },
+        { role: 'undo', label: 'Undo' },
+        { role: 'redo', label: 'Redo' },
         { type: 'separator' },
-        { role: 'cut', label: '剪切' },
-        { role: 'copy', label: '拷贝' },
-        { role: 'paste', label: '粘贴' },
-        { role: 'selectAll', label: '全选' }
+        { role: 'cut', label: 'Cut' },
+        { role: 'copy', label: 'Copy' },
+        { role: 'paste', label: 'Paste' },
+        { role: 'selectAll', label: 'Select All' }
       ]
     },
     {
-      label: '视图',
+      label: 'View',
       submenu: [
-        { role: 'togglefullscreen', label: '进入全屏' },
-        { role: 'resetZoom', label: '实际大小' },
-        { role: 'zoomIn', label: '放大' },
-        { role: 'zoomOut', label: '缩小' }
+        { role: 'togglefullscreen', label: 'Toggle Full Screen' },
+        { role: 'resetZoom', label: 'Actual Size' },
+        { role: 'zoomIn', label: 'Zoom In' },
+        { role: 'zoomOut', label: 'Zoom Out' }
       ]
     },
     {
-      label: '窗口',
+      label: 'Window',
       role: 'windowMenu',
       submenu: [
-        { role: 'minimize', label: '最小化' },
-        { role: 'zoom', label: '缩放' },
+        { role: 'minimize', label: 'Minimize' },
+        { role: 'zoom', label: 'Zoom' },
         { type: 'separator' },
-        { role: 'front', label: '前置全部窗口' }
+        { role: 'front', label: 'Bring All to Front' }
       ]
     },
     {
-      label: '帮助',
+      label: 'Help',
       role: 'help',
       submenu: [
-        { label: '功能说明', click: () => actions.openManual() },
+        { label: 'User Guide', click: () => actions.openManual() },
         {
-          label: '发布主页',
+          label: 'Release Page',
           click: () => void shell.openExternal(UPDATE_RELEASES_PAGE)
         }
       ]
     }
   ]
 
-  // 开发期加一个「切换开发者工具」，正式包不出现
+  // Add a developer-tools toggle in development builds only.
   if (!app.isPackaged) {
     ;(template[2].submenu as MenuItemConstructorOptions[]).push(
       { type: 'separator' },
       {
-        label: '切换开发者工具',
+        label: 'Toggle Developer Tools',
         accelerator: 'Alt+Cmd+I',
         click: () => getWindow()?.webContents.toggleDevTools()
       },
-      { role: 'reload', label: '重新载入' }
+      { role: 'reload', label: 'Reload' }
     )
   }
 
