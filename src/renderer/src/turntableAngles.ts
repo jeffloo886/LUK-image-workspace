@@ -68,6 +68,10 @@ export function turntableAngleTitle(angle: number): string {
   return ANGLE_SHOTS[angle]?.title || `${angle}°`
 }
 
+export function turntableAngleMarker(angle: number): string {
+  return `【转台视角 ${angle}°】`
+}
+
 export function parseTurntableAngle(prompt: string): number | null {
   const match = String(prompt || '').match(/【转台视角\s*(\d+)°/)
   if (!match) return null
